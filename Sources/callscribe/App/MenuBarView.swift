@@ -1,29 +1,50 @@
 import AppKit
-import CallScribeEngine
 import SwiftUI
 
 struct MenuBarView: View {
+    @Bindable var state: AppState
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
-        Text("CallScribe \(AppInfo.version)")
+        statusLine
         Divider()
-        // Temporary M1 verification item: exercises capture + TCC prompts
-        // under the app's own identity. Removed in M6.
-        Button("Run 10s Audio Probe") { runProbe() }
-        Divider()
-        Button("Quit CallScribe") {
-            NSApplication.shared.terminate(nil)
+
+        switch state.phase {
+        case .recording:
+            Button("■ Stop & Transcribe") { state.stopRecording() }
+        case .processing:
+            Text("Processing…").disabled(true)
+        default:
+            Button("● Start Recording") { state.startRecording() }
         }
-        .keyboardShortcut("q")
+
+        if case .done(let folder) = state.phase {
+            Button("Open Last Call") { NSWorkspace.shared.open(folder) }
+        }
+
+        Divider()
+        Button("History…") { openWindow(id: "history") }
+        Button("Quit CallScribe") { NSApplication.shared.terminate(nil) }
+            .keyboardShortcut("q")
     }
 
-    private func runProbe() {
-        Task {
-            do {
-                let result = try await ProbeRunner.run(seconds: 10)
-                NSWorkspace.shared.activateFileViewerSelecting([result.micURL, result.systemURL])
-            } catch {
-                NSLog("Probe failed: \(error.localizedDescription)")
-            }
+    @ViewBuilder private var statusLine: some View {
+        switch state.phase {
+        case .idle:
+            Text("CallScribe — ready")
+        case .recording(let elapsed):
+            Text("● Recording  \(Self.clock(elapsed))")
+        case .processing(let stage):
+            Text("Processing: \(stage)…")
+        case .done:
+            Text("✓ Done")
+        case .failed(let message):
+            Text("⚠️ \(message)")
         }
+    }
+
+    static func clock(_ seconds: TimeInterval) -> String {
+        let t = Int(seconds)
+        return String(format: "%02d:%02d", t / 60, t % 60)
     }
 }
