@@ -1,0 +1,20 @@
+import Foundation
+
+/// Turns a transcript into a Markdown summary. Implementation #1 shells out to
+/// `claude -p`; the protocol lets an Ollama backend slot in later. Summarization
+/// never blocks the transcript — a failure here still leaves transcript.md.
+public protocol Summarizer: Sendable {
+    func summarize(transcript: String) async throws -> SummaryResult
+}
+
+public struct SummaryResult: Sendable, Equatable {
+    /// Full summary Markdown (summary / agreements / "my tasks" checklist).
+    public let markdown: String
+    /// Inferred label → real name ("Speaker 1" → "Misha").
+    public let speakerNames: [String: String]
+
+    public init(markdown: String, speakerNames: [String: String]) {
+        self.markdown = markdown
+        self.speakerNames = speakerNames
+    }
+}

@@ -31,5 +31,9 @@ let package = Package(
             name: "CallScribeCoreTests",
             dependencies: ["CallScribeCore"]
         ),
+        .testTarget(
+            name: "CallScribeEngineTests",
+            dependencies: ["CallScribeEngine", "CallScribeCore"]
+        ),
     ]
 )

@@ -1,6 +1,9 @@
 APP      := build/CallScribe.app
-IDENTITY := CallScribe Dev
 BUNDLE_ID := com.slavayus.callscribe
+KEYCHAIN  := $(HOME)/Library/Keychains/callscribe-signing.keychain-db
+# Sign by the identity's SHA-1 hash, not its name: "CallScribe Dev" can appear
+# in more than one keychain and codesign-by-name is ambiguous across them.
+IDENTITY_HASH := $(shell security find-identity -p codesigning "$(KEYCHAIN)" 2>/dev/null | awk '/CallScribe Dev/{print $$2; exit}')
 
 # The CommandLineTools toolchain ships Testing.framework outside the default
 # search paths; swift test needs them spelled out (not needed for swift build).
@@ -20,7 +23,10 @@ app: build
 	mkdir -p $(APP)/Contents/MacOS
 	cp .build/release/callscribe $(APP)/Contents/MacOS/callscribe
 	cp Support/Info.plist $(APP)/Contents/Info.plist
-	codesign --force --sign "$(IDENTITY)" --identifier $(BUNDLE_ID) $(APP)
+	find $(APP) -name '*.cstemp' -delete 2>/dev/null || true
+	@test -n "$(IDENTITY_HASH)" || { echo "No 'CallScribe Dev' identity — run 'make cert' first."; exit 1; }
+	codesign --force --sign "$(IDENTITY_HASH)" --keychain "$(KEYCHAIN)" \
+	  --identifier $(BUNDLE_ID) $(APP)
 
 run: app
 	open $(APP)

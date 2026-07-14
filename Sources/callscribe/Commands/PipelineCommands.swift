@@ -1,0 +1,111 @@
+import ArgumentParser
+import CallScribeCore
+import CallScribeEngine
+import Foundation
+
+/// Shared helpers for the folder-oriented pipeline subcommands.
+private func callFolder(_ path: String) -> CallFolder {
+    CallFolder(url: URL(fileURLWithPath: path))
+}
+
+private func makeRunner(_ folder: CallFolder, withSummarizer: Bool) throws -> PipelineRunner {
+    let modelsDir = try AppPaths.ensureModelsDirectory()
+    let summarizer: Summarizer? = withSummarizer ? ClaudeCLISummarizer() : nil
+    if withSummarizer && summarizer == nil {
+        FileHandle.standardError.write(Data("note: `claude` CLI not found; summary will be skipped\n".utf8))
+    }
+    return PipelineRunner(folder: folder, modelsDir: modelsDir, summarizer: summarizer)
+}
+
+struct SetupCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "setup",
+        abstract: "Download and prewarm the transcription model (one-time, several minutes)."
+    )
+
+    func run() async throws {
+        let dir = try AppPaths.ensureModelsDirectory()
+        print("Downloading + prewarming \(WhisperTranscriber.defaultModel) into \(dir.path)…")
+        _ = try await WhisperTranscriber(modelFolder: dir, prewarm: true) { fraction in
+            print(String(format: "  %.0f%%", fraction * 100))
+        }
+        print("Model ready.")
+    }
+}
+
+struct TranscribeCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "transcribe",
+        abstract: "Transcribe both tracks of a call folder (writes .cache/whisper-*.json)."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+    @Flag(help: "Re-transcribe even if cached.") var force = false
+
+    func run() async throws {
+        let runner = try makeRunner(callFolder(folder), withSummarizer: false)
+        _ = try await runner.runStage(.transcribe, force: force)
+        print("Transcribed.")
+    }
+}
+
+struct DiarizeCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "diarize",
+        abstract: "Diarize the system track of a call folder (writes .cache/diarization.json)."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+    @Flag(help: "Re-diarize even if cached.") var force = false
+
+    func run() async throws {
+        let runner = try makeRunner(callFolder(folder), withSummarizer: false)
+        _ = try await runner.runStage(.diarize, force: force)
+        print("Diarized.")
+    }
+}
+
+struct MergeCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "merge",
+        abstract: "Merge transcription + diarization into transcript.md."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+
+    func run() async throws {
+        let runner = try makeRunner(callFolder(folder), withSummarizer: false)
+        _ = try await runner.runStage(.merge, force: true)
+        print("Wrote transcript.md")
+    }
+}
+
+struct SummarizeCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "summarize",
+        abstract: "Summarize transcript.md via `claude -p` into summary.md."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+
+    func run() async throws {
+        let runner = try makeRunner(callFolder(folder), withSummarizer: true)
+        _ = try await runner.runStage(.summarize, force: true)
+        print("Wrote summary.md")
+    }
+}
+
+struct PipelineCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "pipeline",
+        abstract: "Run the full post-recording pipeline (resumable)."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+    @Flag(help: "Re-run every stage.") var force = false
+
+    func run() async throws {
+        let f = callFolder(folder)
+        let runner = try makeRunner(f, withSummarizer: true)
+        let meta = try await runner.run(force: force) { stage in
+            print("… \(stage.rawValue)")
+        }
+        print("Done. transcript.md\(meta.pipeline.summarized ? " + summary.md" : " (summary skipped)")")
+        print("  \(f.url.path)")
+    }
+}

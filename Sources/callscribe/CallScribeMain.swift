@@ -26,7 +26,17 @@ struct CallScribeCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "callscribe",
         abstract: "Local call transcription for macOS.",
-        subcommands: [VersionCommand.self]
+        subcommands: [
+            RecordCommand.self,
+            SetupCommand.self,
+            TranscribeCommand.self,
+            DiarizeCommand.self,
+            MergeCommand.self,
+            SummarizeCommand.self,
+            PipelineCommand.self,
+            ProbeCommand.self,
+            VersionCommand.self,
+        ]
     )
 
     static var subcommandNames: [String] {
