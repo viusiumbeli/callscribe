@@ -1,0 +1,158 @@
+# CallScribe — design
+
+Local call transcription for macOS. The name `callscribe` is a working title.
+
+## Problem
+
+Taking notes during calls by hand is distracting. We need a desktop app that records
+a call, transcribes it, and produces a summary with an action-item checklist.
+Speech recognition must run strictly on-device, no network.
+
+## Requirements
+
+- **Languages**: Russian (primary) and English; auto-detect with manual override.
+- **Modes**: live draft during the call + accurate final pass afterwards (live is
+  not part of the MVP).
+- **Output**: transcript with timecodes and per-speaker attribution — me plus each
+  remote participant distinguished (`Speaker 1/2/3`), with names inferred from
+  conversation context by the LLM where possible; summary, agreements, a
+  "what I must do" checklist; Markdown export; call history.
+- **Platform**: macOS only (Apple Silicon).
+- **Privacy**: STT and diarization are fully offline. Summaries in v1 go through the
+  locally installed `claude -p`: the transcript text is sent to the Anthropic API
+  (a deliberate trade-off). The Summarizer interface allows plugging in Ollama later
+  for a 100% offline setup.
+
+## Key decisions
+
+1. **Native Swift** (SwiftUI, menubar app), single process. macOS-only removes the
+   cross-platform audio-capture pain; ScreenCaptureKit and CoreML with no glue layers.
+2. **Two separate audio tracks**: microphone (me) via AVAudioEngine, system audio
+   (other participants) via a Core Audio process tap (`AudioHardwareCreateProcessTap`
+   + aggregate device, macOS 14.4+; AudioCap pattern). "Me vs others" attribution
+   comes from the channel split — zero ML, no voice overlap between the two tracks.
+   *(Changed from ScreenCaptureKit at planning stage: SCK requires the Screen
+   Recording TCC with monthly re-approval nags on macOS 15+ and can't run truly
+   video-free; taps use the plain Audio Recording permission. A tap-backed
+   aggregate device can't be read via AVAudioEngine — IOProc callbacks only.)*
+3. **WhisperKit** as the STT engine: live draft via streaming on a small model
+   (base/small), final pass in batch mode on `large-v3-turbo`, each track separately.
+4. **Diarization of remote participants in the MVP**: FluidAudio (pyannote models on
+   CoreML, on-device) clusters voices on the system-audio track into `Speaker 1/2/3`.
+   Known limits: labels are anonymous (not names), and boundaries degrade on
+   overlapping speech, similar voices, and compressed conference audio.
+5. **Speaker names via the LLM**: the Summarizer prompt maps speaker labels to real
+   names from conversation context ("Thanks, Misha" → Speaker 2 = Misha) —
+   best-effort; manual rename in the UI is the fallback. The mapping is stored in
+   `meta.json` and applied to the transcript.
+6. **Audio is the source of truth**: written to disk continuously from the first
+   second; the transcript can always be regenerated. An app crash never loses a call.
+7. **Storage is plain folders, no DB**; Markdown is indexed by Spotlight (search for free).
+
+## Architecture
+
+```
+┌─ Menubar UI (SwiftUI) ──────────────────────────────────┐
+│  ● Rec/Stop, live draft, transcript, history,           │
+│  speaker rename                                         │
+└──────┬──────────────────────────────────────────────────┘
+       │
+┌──────▼──────────┐  ┌──────────────────────┐
+│ AudioRecorder   │→ │ Transcriber          │
+│ Core Audio tap  │  │ WhisperKit           │
+│ (system audio)  │  │ live: small          │
+│ AVAudioEngine   │  │ final: large-v3-turbo│
+│ (microphone)    │  └──────────┬───────────┘
+└─────────────────┘             │ word-timestamped segments
+       ↓ writes continuously    ▼
+   Storage:          ┌──────────────────────┐  ┌───────────────────────────┐
+   one folder        │ Diarizer             │→ │ Summarizer                │
+   per call          │ FluidAudio (CoreML), │  │ claude -p / (Ollama later)│
+                     │ system track only    │  │ + speaker-name inference  │
+                     └──────────────────────┘  └───────────────────────────┘
+```
+
+- **AudioRecorder** — two WAV/CAF tracks, 16 kHz mono, continuous writes to disk.
+- **Transcriber** — live: mixed signal → ring buffer → WhisperKit streaming (draft,
+  no attribution). Final: each track separately with word timestamps.
+- **Diarizer** — runs on the system-audio track, produces time-ranged speaker
+  clusters; merge step aligns Whisper segments with clusters by time overlap →
+  `[00:12:34] Me: … / Speaker 2: …`.
+- **Summarizer** — a "transcript → markdown" protocol + prompt template (summary,
+  agreements, "my tasks" checklist, speaker-name mapping). Implementation #1 shells
+  out to `claude -p`.
+
+macOS permissions: Microphone + System Audio Recording (`NSAudioCaptureUsageDescription`,
+required by the Core Audio tap) — onboarding flow on first launch. No Screen
+Recording permission needed.
+
+## Data flow
+
+During the call:
+1. ● Rec → both captures start; audio hits the disk immediately.
+2. Mixed signal → live draft in the window (marked as "draft").
+3. Live degrades gracefully: if the model can't keep up, the draft lags; disk
+   recording is never affected (priority #1).
+
+After Stop:
+4. Final STT pass per track; diarization on the system track; merge by time overlap
+   → `transcript.md` with `Me / Speaker N` labels.
+5. Transcript → Summarizer → `summary.md` + inferred speaker names; names are
+   applied to the transcript, manual rename available in the UI.
+6. Window shows transcript + summary; "copy / export / open folder" actions.
+
+## Storage
+
+```
+~/Documents/CallNotes/2026-07-14_15-30/
+  mic.wav  system.wav  transcript.md  summary.md  meta.json
+```
+
+`meta.json` holds call metadata and the speaker-label → name mapping (inferred or
+manually set). In-app history = a listing of this folder. Setting: "delete audio
+after successful transcription".
+
+## Error handling
+
+- Permission revoked / capture died mid-call → immediate notification; everything
+  recorded so far is kept.
+- No `claude` CLI / no network → transcript is still produced and saved (with
+  anonymous speaker labels); the summary has a "retry" button. Transcription and
+  diarization never depend on summarization.
+- Diarization failure → transcript falls back to `Me / Participant` labels; the
+  call is not lost.
+- First launch → model download (Whisper ~1.5 GB + small model + diarization models)
+  with a progress bar.
+- Low disk space → checked before recording starts.
+
+## Testing
+
+- Unit: merge logic — aligning word-timestamped Whisper segments with diarization
+  clusters across two tracks (the core logic of the app).
+- Golden test of the pipeline on a short two-track ru+en fixture with two remote
+  speakers.
+- Summarizer is mocked in tests (including the name-mapping response).
+- Audio capture — manual smoke test (not verifiable in CI).
+
+## Phases
+
+1. **MVP**: record two tracks → final transcript (me + Speaker 1/2/3, timecodes) →
+   diarization → summary + checklist + name inference via claude → export/history.
+   No live.
+2. Live draft.
+3. Polish: history search, audio auto-delete, Ollama backend.
+
+## Verify at planning stage
+
+Knowledge snapshot is early 2026: before implementation, check current docs for the
+exact WhisperKit APIs (streaming, word timestamps), ScreenCaptureKit (audio-only
+capture, current permission model on macOS 15+), and FluidAudio (diarization API,
+model licensing).
+
+*Verified 2026-07-14.* WhisperKit now ships inside the Argmax OSS SDK
+(`github.com/argmaxinc/argmax-oss-swift`, v1.0.0, MIT); word timestamps and ru/en
+auto-detect confirmed. FluidAudio v0.15.x confirmed (Apache 2.0; pyannote-derived
+CoreML models are CC-BY-4.0). ScreenCaptureKit was replaced with Core Audio process
+taps — see decision #2. Build system: SwiftPM only (no Xcode; CommandLineTools
+toolchain), `.app` bundle assembled by the Makefile and signed with a local
+self-signed certificate so TCC grants persist across rebuilds.
