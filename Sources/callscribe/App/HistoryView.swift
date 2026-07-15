@@ -7,19 +7,23 @@ struct HistoryView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(state.calls, selection: $selection) { call in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.title(for: call)).font(.body)
-                    if let dur = call.durationSec, dur > 0 {
-                        Text(Self.duration(dur)).font(.caption).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                recordHeader
+                Divider()
+                List(state.calls, selection: $selection) { call in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Self.title(for: call)).font(.body)
+                        if let dur = call.durationSec, dur > 0 {
+                            Text(Self.duration(dur)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .tag(call.id)
+                    .contextMenu {
+                        Button("Delete", role: .destructive) { pendingDelete = call }
                     }
                 }
-                .tag(call.id)
-                .contextMenu {
-                    Button("Delete", role: .destructive) { pendingDelete = call }
-                }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
             .toolbar {
                 Button { state.refreshHistory() } label: { Image(systemName: "arrow.clockwise") }
             }
@@ -47,6 +51,23 @@ struct HistoryView: View {
         } message: { _ in
             Text("This permanently removes the whole folder — audio, transcript, summary and everything else for this call.")
         }
+    }
+
+    /// Prominent recording control pinned above the call list.
+    private var recordHeader: some View {
+        VStack(spacing: 8) {
+            RecordButton(state: state)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(state.isRecording ? Color.red : Color.accentColor)
+                .frame(maxWidth: .infinity)
+                .keyboardShortcut("r")
+
+            if case .idle = state.phase {} else {
+                RecordStatusChip(phase: state.phase)
+            }
+        }
+        .padding(12)
     }
 
     /// Friendly call title from its start time, falling back to the folder name.
