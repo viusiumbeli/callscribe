@@ -33,7 +33,9 @@ struct CallDetailView: View {
                     }
                 }
 
-                if let actionError { errorBanner(actionError) }
+                if let actionError {
+                    ErrorBanner(message: actionError) { self.actionError = nil }
+                }
 
                 if player.isReady {
                     collapsibleSection("Audio", isExpanded: $showAudio) { playbackBar }
@@ -168,30 +170,6 @@ struct CallDetailView: View {
         } label: {
             Text(title).font(.headline)
         }
-    }
-
-    /// A copyable, dismissable per-call error (Retry Summary / Rename failures).
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-            Text(message)
-                .foregroundStyle(.orange)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(message, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .help("Copy the full error text")
-            Button { actionError = nil } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless)
-                .help("Dismiss")
-        }
-        .padding(10)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// Run a per-call async action, showing a local error on failure.

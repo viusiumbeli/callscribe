@@ -39,6 +39,11 @@ final class AppState {
         return false
     }
 
+    /// Dismiss a recording-flow error shown in the window.
+    func clearError() {
+        if case .failed = phase { phase = .idle }
+    }
+
     /// Delete a call's entire folder from disk and drop it from history.
     func delete(_ folder: CallFolder) {
         try? store.delete(folder)
