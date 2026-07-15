@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct HistoryView: View {
@@ -57,6 +58,8 @@ struct HistoryView: View {
     /// Prominent recording control pinned above the call list.
     private var recordHeader: some View {
         VStack(spacing: 8) {
+            projectPicker
+
             RecordButton(state: state)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -69,6 +72,45 @@ struct HistoryView: View {
             }
         }
         .padding(12)
+    }
+
+    /// Project selector: pick where recordings are stored / claude runs, or add
+    /// a new project pointing at a folder you choose.
+    private var projectPicker: some View {
+        Menu {
+            ForEach(state.projects) { project in
+                Button {
+                    state.selectedProjectID = project.id
+                } label: {
+                    if project.id == state.selectedProjectID {
+                        Label(project.name, systemImage: "checkmark")
+                    } else {
+                        Text(project.name)
+                    }
+                }
+            }
+            Divider()
+            Button("Add Project…") { addProject() }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                Text(state.selectedProject.name).lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down").font(.caption2)
+            }
+        }
+        .menuStyle(.borderlessButton)
+    }
+
+    private func addProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = "Choose a folder for this project's recordings"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        state.addProject(name: url.lastPathComponent, url: url)
     }
 
     /// One call row: the LLM title (or the time, if untitled) plus time/duration.

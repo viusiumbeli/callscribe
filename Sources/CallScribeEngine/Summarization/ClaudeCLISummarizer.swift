@@ -25,11 +25,13 @@ public struct ClaudeCLISummarizer: Summarizer {
 
     private let binaryURL: URL
     private let timeout: TimeInterval
+    private let workingDirectory: URL?
 
-    public init?(timeout: TimeInterval = 180) {
+    public init?(workingDirectory: URL? = nil, timeout: TimeInterval = 180) {
         guard let binary = Self.resolveBinary() else { return nil }
         self.binaryURL = binary
         self.timeout = timeout
+        self.workingDirectory = workingDirectory
     }
 
     /// CALLSCRIBE_CLAUDE_PATH → common install locations. GUI apps don't inherit
@@ -61,13 +63,19 @@ public struct ClaudeCLISummarizer: Summarizer {
         process.executableURL = binaryURL
         process.arguments = ["-p"]
 
-        // Run in a throwaway empty directory so the `claude` agent doesn't scan
-        // the user's real folders (Desktop/Documents/…) as a "project" — those
-        // accesses would otherwise surface as TCC prompts attributed to this app.
-        let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("callscribe-claude", isDirectory: true)
-        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        process.currentDirectoryURL = scratch
+        // Run in the project's working directory (chosen by the user) so the
+        // `claude` agent's file access is intentional and scoped there. Falls
+        // back to a throwaway temp dir so it never scans the user's real
+        // folders (Desktop/Documents/…) by accident.
+        if let workingDirectory {
+            try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            process.currentDirectoryURL = workingDirectory
+        } else {
+            let scratch = FileManager.default.temporaryDirectory
+                .appendingPathComponent("callscribe-claude", isDirectory: true)
+            try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            process.currentDirectoryURL = scratch
+        }
 
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin

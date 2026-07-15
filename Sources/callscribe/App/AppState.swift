@@ -16,11 +16,27 @@ final class AppState {
 
     private(set) var phase: Phase = .idle
     private(set) var calls: [CallSummary] = []
+    private(set) var projects: [Project] = []
+    var selectedProjectID: String = "" {
+        didSet {
+            guard selectedProjectID != oldValue else { return }
+            persistProjects()
+            refreshHistory()
+        }
+    }
 
-    private let store = CallStore()
+    private let projectStore = ProjectStore()
     private var session: RecordingSession?
     private var timerTask: Task<Void, Never>?
     private var startedAt: Date?
+
+    var selectedProject: Project {
+        projects.first { $0.id == selectedProjectID } ?? projects.first
+            ?? ProjectStore.makeDefault()
+    }
+
+    /// Storage for the currently-selected project.
+    private var store: CallStore { CallStore(rootURL: selectedProject.rootURL) }
 
     struct CallSummary: Identifiable, Hashable {
         let id: String
@@ -32,7 +48,24 @@ final class AppState {
     }
 
     init() {
+        let state = projectStore.load()
+        projects = state.projects
+        selectedProjectID = state.selectedID
         refreshHistory()
+    }
+
+    // MARK: - Projects
+
+    /// Add a project for a user-chosen folder and switch to it.
+    func addProject(name: String, url: URL) {
+        let project = Project(id: UUID().uuidString, name: name, path: url.path)
+        projects.append(project)
+        persistProjects()
+        selectedProjectID = project.id   // triggers refreshHistory via didSet
+    }
+
+    private func persistProjects() {
+        try? projectStore.save(.init(projects: projects, selectedID: selectedProjectID))
     }
 
     var isRecording: Bool {
@@ -128,7 +161,7 @@ final class AppState {
                 let runner = PipelineRunner(
                     folder: folder,
                     modelsDir: modelsDir,
-                    summarizer: ClaudeCLISummarizer()
+                    summarizer: ClaudeCLISummarizer(workingDirectory: selectedProject.rootURL)
                 )
                 try await runner.run { stage in
                     Task { @MainActor in self.phase = .processing(stage: stage.rawValue) }
