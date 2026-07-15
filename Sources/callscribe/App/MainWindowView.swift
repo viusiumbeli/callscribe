@@ -28,6 +28,7 @@ struct MainWindowView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 520)
+        .navigationTitle("")
         .onChange(of: state.selectedProjectID) { selectedCallID = nil }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {

@@ -57,7 +57,6 @@ struct CallDetailView: View {
         }
         .onChange(of: call.id, initial: true) { _, _ in load() }
         .onDisappear { player.teardown() }
-        .navigationTitle(CallFormatting.title(call))
         .confirmationDialog(
             "Delete this recording?",
             isPresented: $confirmingDelete,
