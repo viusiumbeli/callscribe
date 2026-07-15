@@ -28,13 +28,18 @@ public struct CallStore: Sendable {
         return CallFolder(url: candidate)
     }
 
-    /// All call folders, newest first (by folder name, which encodes the date).
+    /// Call folders, newest first. Only directories that actually hold a call
+    /// (they contain `meta.json`) are returned, so pointing a project at a
+    /// folder with unrelated subfolders never lists them as calls.
     public func listCalls() throws -> [CallFolder] {
         guard FileManager.default.fileExists(atPath: rootURL.path) else { return [] }
         return try FileManager.default
             .contentsOfDirectory(at: rootURL, includingPropertiesForKeys: [.isDirectoryKey])
             .filter { url in
-                (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                let hasMeta = FileManager.default.fileExists(
+                    atPath: url.appendingPathComponent("meta.json").path)
+                return isDir && hasMeta
             }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
             .map(CallFolder.init(url:))

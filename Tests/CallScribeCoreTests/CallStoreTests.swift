@@ -29,13 +29,14 @@ private func tempRoot() -> URL {
     let store = CallStore(rootURL: root)
 
     for name in ["2026-07-10_09-00", "2026-07-14_15-30", "2026-01-02_08-15"] {
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(name),
-            withIntermediateDirectories: true
-        )
+        let dir = root.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("meta.json"))
     }
-    // Stray files are ignored.
+    // Stray files and non-call folders are ignored.
     try Data().write(to: root.appendingPathComponent(".DS_Store"))
+    try FileManager.default.createDirectory(
+        at: root.appendingPathComponent("unrelated-folder"), withIntermediateDirectories: true)
 
     let calls = try store.listCalls()
     #expect(calls.map(\.name) == ["2026-07-14_15-30", "2026-07-10_09-00", "2026-01-02_08-15"])

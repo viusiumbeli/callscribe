@@ -56,16 +56,40 @@ final class AppState {
 
     // MARK: - Projects
 
-    /// Add a project for a user-chosen folder and switch to it.
-    func addProject(name: String, url: URL) {
-        let project = Project(id: UUID().uuidString, name: name, path: url.path)
+    /// Create a project: inside the user-chosen `parentURL`, make a dedicated
+    /// folder named after the project — recordings and `claude` live there, so
+    /// nothing else in the chosen directory is touched — then switch to it.
+    func addProject(name: String, parentURL: URL) {
+        let folderName = Self.sanitizeFolderName(name)
+        let workingDir = parentURL.appendingPathComponent(folderName, isDirectory: true)
+        try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true)
+        let project = Project(id: UUID().uuidString, name: name, path: workingDir.path)
         projects.append(project)
         persistProjects()
         selectedProjectID = project.id   // triggers refreshHistory via didSet
     }
 
+    /// Remove a project from CallScribe (its files on disk are left untouched).
+    func removeProject(_ id: String) {
+        guard projects.count > 1 else { return }   // always keep at least one
+        projects.removeAll { $0.id == id }
+        if selectedProjectID == id {
+            selectedProjectID = projects.first?.id ?? ""   // didSet persists + refreshes
+        } else {
+            persistProjects()
+        }
+    }
+
     private func persistProjects() {
         try? projectStore.save(.init(projects: projects, selectedID: selectedProjectID))
+    }
+
+    private static func sanitizeFolderName(_ name: String) -> String {
+        let cleaned = name
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "CallScribe" : cleaned
     }
 
     var isRecording: Bool {
