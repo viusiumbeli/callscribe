@@ -17,13 +17,14 @@ struct CallDetailView: View {
     @State private var player = CallAudioPlayer()
     @State private var showAudio = true
     @State private var showTranscript = true
+    @State private var showSpeakers = true
     @State private var confirmingDelete = false
     @State private var actionError: String?
     @State private var busy = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 actions
 
                 if busy {
@@ -38,16 +39,22 @@ struct CallDetailView: View {
                 }
 
                 if player.isReady {
-                    collapsibleSection("Audio", isExpanded: $showAudio) { playbackBar }
+                    SectionCard(title: "Audio", systemImage: "waveform", isExpanded: $showAudio) {
+                        playbackBar
+                    }
                 }
 
                 if !summary.isEmpty {
                     SummaryView(markdown: summary) { index in toggleTask(index) }
                 }
 
-                if !speakerLabels.isEmpty { renameControls }
+                if !speakerLabels.isEmpty {
+                    SectionCard(title: "Speakers", systemImage: "person.2", isExpanded: $showSpeakers) {
+                        renameControls
+                    }
+                }
 
-                collapsibleSection("Transcript", isExpanded: $showTranscript) {
+                SectionCard(title: "Transcript", systemImage: "text.quote", isExpanded: $showTranscript) {
                     Text(transcript.isEmpty ? "No transcript." : transcript)
                         .textSelection(.enabled)
                         .font(.system(.body, design: .default))
@@ -175,21 +182,6 @@ struct CallDetailView: View {
             .disabled(busy)
         }
         .font(.callout)
-    }
-
-    private func collapsibleSection<Content: View>(
-        _ title: String,
-        isExpanded: Binding<Bool>,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        let inner = content()
-        return DisclosureGroup(isExpanded: isExpanded) {
-            inner
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-        } label: {
-            Text(title).font(.headline)
-        }
     }
 
     /// Run a per-call async action, showing a local error on failure.
