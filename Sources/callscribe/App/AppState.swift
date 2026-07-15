@@ -135,42 +135,32 @@ final class AppState {
         }
     }
 
-    /// Rename a speaker label and re-render that call's transcript.
-    func rename(_ label: String, to name: String, in folder: CallFolder) {
-        Task {
-            do {
-                var meta = try folder.loadMeta()
-                if name.isEmpty { meta.speakerNames[label] = nil }
-                else { meta.speakerNames[label] = name }
-                try folder.saveMeta(meta)
-                let runner = PipelineRunner(
-                    folder: folder,
-                    modelsDir: try AppPaths.ensureModelsDirectory(),
-                    summarizer: nil
-                )
-                try await runner.renderTranscript(names: meta.speakerNames)
-                refreshHistory()
-            } catch {
-                phase = .failed(error.localizedDescription)
-            }
-        }
+    /// Rename a speaker label and re-render that call's transcript. Per-call
+    /// action — throws so the detail view shows a local error, not the global
+    /// recording status.
+    func rename(_ label: String, to name: String, in folder: CallFolder) async throws {
+        var meta = try folder.loadMeta()
+        if name.isEmpty { meta.speakerNames[label] = nil }
+        else { meta.speakerNames[label] = name }
+        try folder.saveMeta(meta)
+        let runner = PipelineRunner(
+            folder: folder,
+            modelsDir: try AppPaths.ensureModelsDirectory(),
+            summarizer: nil
+        )
+        try await runner.renderTranscript(names: meta.speakerNames)
+        refreshHistory()
     }
 
-    /// Retry just the summary stage for a call whose earlier summary failed.
-    func retrySummary(for folder: CallFolder) {
-        Task {
-            phase = .processing(stage: "summarize")
-            do {
-                let runner = PipelineRunner(
-                    folder: folder,
-                    modelsDir: try AppPaths.ensureModelsDirectory(),
-                    summarizer: ClaudeCLISummarizer()
-                )
-                _ = try await runner.runStage(.summarize, force: true)
-                phase = .done(folder: folder.url)
-            } catch {
-                phase = .failed(error.localizedDescription)
-            }
-        }
+    /// Retry just the summary stage. Per-call action — throws so the detail
+    /// view shows a local error rather than the global status.
+    func retrySummary(for folder: CallFolder) async throws {
+        let runner = PipelineRunner(
+            folder: folder,
+            modelsDir: try AppPaths.ensureModelsDirectory(),
+            summarizer: ClaudeCLISummarizer()
+        )
+        _ = try await runner.runStage(.summarize, force: true)
+        refreshHistory()
     }
 }

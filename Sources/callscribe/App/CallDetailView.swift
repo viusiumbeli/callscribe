@@ -18,11 +18,22 @@ struct CallDetailView: View {
     @State private var showAudio = true
     @State private var showTranscript = true
     @State private var confirmingDelete = false
+    @State private var actionError: String?
+    @State private var busy = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 actions
+
+                if busy {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Working…").foregroundStyle(.secondary)
+                    }
+                }
+
+                if let actionError { errorBanner(actionError) }
 
                 if player.isReady {
                     collapsibleSection("Audio", isExpanded: $showAudio) { playbackBar }
@@ -100,7 +111,8 @@ struct CallDetailView: View {
             .disabled(transcript.isEmpty)
 
             if summary.isEmpty {
-                Button("Retry Summary") { state.retrySummary(for: call.folder) }
+                Button("Retry Summary") { run { try await state.retrySummary(for: call.folder) } }
+                    .disabled(busy)
             }
 
             Spacer()
@@ -136,9 +148,9 @@ struct CallDetailView: View {
             TextField("Name", text: $renameTo).frame(width: 160)
             Button("Rename") {
                 guard !selectedLabel.isEmpty else { return }
-                state.rename(selectedLabel, to: renameTo, in: call.folder)
-                Task { try? await Task.sleep(for: .milliseconds(400)); load() }
+                run { try await state.rename(selectedLabel, to: renameTo, in: call.folder) }
             }
+            .disabled(busy)
         }
         .font(.callout)
     }
@@ -155,6 +167,45 @@ struct CallDetailView: View {
                 .padding(.top, 4)
         } label: {
             Text(title).font(.headline)
+        }
+    }
+
+    /// A copyable, dismissable per-call error (Retry Summary / Rename failures).
+    private func errorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+            Text(message)
+                .foregroundStyle(.orange)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("Copy the full error text")
+            Button { actionError = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .help("Dismiss")
+        }
+        .padding(10)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Run a per-call async action, showing a local error on failure.
+    private func run(_ operation: @escaping () async throws -> Void) {
+        Task {
+            busy = true
+            actionError = nil
+            do {
+                try await operation()
+                load()
+            } catch {
+                actionError = error.localizedDescription
+            }
+            busy = false
         }
     }
 
