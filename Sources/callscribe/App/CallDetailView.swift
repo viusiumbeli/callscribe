@@ -1,7 +1,6 @@
 import AppKit
 import CallScribeCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct CallDetailView: View {
     @Bindable var state: AppState
@@ -79,24 +78,19 @@ struct CallDetailView: View {
             }
             .disabled(transcript.isEmpty)
 
-            Button("Export…") { export() }
-                .disabled(transcript.isEmpty && summary.isEmpty)
-
             if summary.isEmpty {
                 Button("Retry Summary") { state.retrySummary(for: call.folder) }
             }
 
             Spacer()
 
-            // Secondary: only needed to copy the raw files out of the folder.
+            // Only needed to grab the raw files (audio, markdown) out of the folder.
             Button {
                 NSWorkspace.shared.open(call.folder.url)
             } label: {
                 Label("Open Folder", systemImage: "folder")
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help("Open in Finder — only needed to copy the raw audio/files out")
+            .help("Open this call's folder in Finder")
         }
     }
 
@@ -125,14 +119,5 @@ struct CallDetailView: View {
         transcript = (try? String(contentsOf: call.folder.transcriptMD, encoding: .utf8)) ?? ""
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
         player.load(call.folder)
-    }
-
-    private func export() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(call.name).md"
-        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let combined = summary.isEmpty ? transcript : "\(summary)\n\n---\n\n\(transcript)"
-        try? combined.write(to: url, atomically: true, encoding: .utf8)
     }
 }
