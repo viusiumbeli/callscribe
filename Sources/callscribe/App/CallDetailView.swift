@@ -8,7 +8,9 @@ struct CallDetailView: View {
 
     @State private var transcript = ""
     @State private var summary = ""
-    @State private var renameLabel = ""
+    @State private var names: [String: String] = [:]
+    @State private var speakerLabels: [String] = []
+    @State private var selectedLabel = ""
     @State private var renameTo = ""
     @State private var player = CallAudioPlayer()
 
@@ -25,7 +27,7 @@ struct CallDetailView: View {
                     SummaryView(markdown: summary) { index in toggleTask(index) }
                 }
 
-                renameControls
+                if !speakerLabels.isEmpty { renameControls }
 
                 section("Transcript") {
                     Text(transcript.isEmpty ? "No transcript." : transcript)
@@ -96,12 +98,18 @@ struct CallDetailView: View {
 
     private var renameControls: some View {
         HStack {
-            TextField("Label (e.g. Speaker 1)", text: $renameLabel).frame(width: 160)
+            Picker("Speaker", selection: $selectedLabel) {
+                ForEach(speakerLabels, id: \.self) { label in
+                    Text(names[label].map { "\(label) → \($0)" } ?? label).tag(label)
+                }
+            }
+            .frame(width: 220)
+            .onChange(of: selectedLabel) { _, new in renameTo = names[new] ?? "" }
+
             TextField("Name", text: $renameTo).frame(width: 160)
             Button("Rename") {
-                guard !renameLabel.isEmpty else { return }
-                state.rename(renameLabel, to: renameTo, in: call.folder)
-                renameLabel = ""; renameTo = ""
+                guard !selectedLabel.isEmpty else { return }
+                state.rename(selectedLabel, to: renameTo, in: call.folder)
                 Task { try? await Task.sleep(for: .milliseconds(400)); load() }
             }
         }
@@ -118,7 +126,27 @@ struct CallDetailView: View {
     private func load() {
         transcript = (try? String(contentsOf: call.folder.transcriptMD, encoding: .utf8)) ?? ""
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
+        names = (try? call.folder.loadMeta().speakerNames) ?? [:]
+        speakerLabels = Self.labels(in: transcript, names: names)
+        if !speakerLabels.contains(selectedLabel) { selectedLabel = speakerLabels.first ?? "" }
+        renameTo = names[selectedLabel] ?? ""
         player.load(call.folder)
+    }
+
+    /// Canonical speaker labels present in the transcript ("Me", "Speaker 1",
+    /// "Participant"), in first-appearance order. A line may already show a
+    /// renamed name, so map displayed names back to their canonical label.
+    static func labels(in transcript: String, names: [String: String]) -> [String] {
+        let reverse = Dictionary(names.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        var result: [String] = []
+        for line in transcript.split(separator: "\n") {
+            guard let match = line.firstMatch(of: /\*\*\[[0-9:]+\]\s+(.+?):\*\*/) else { continue }
+            let shown = String(match.1)
+            let canonical = reverse[shown] ?? shown
+            if seen.insert(canonical).inserted { result.append(canonical) }
+        }
+        return result
     }
 
     /// Check/uncheck a "My tasks" item and persist it back to summary.md.
