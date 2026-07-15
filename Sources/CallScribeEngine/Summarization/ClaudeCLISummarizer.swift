@@ -61,6 +61,14 @@ public struct ClaudeCLISummarizer: Summarizer {
         process.executableURL = binaryURL
         process.arguments = ["-p"]
 
+        // Run in a throwaway empty directory so the `claude` agent doesn't scan
+        // the user's real folders (Desktop/Documents/…) as a "project" — those
+        // accesses would otherwise surface as TCC prompts attributed to this app.
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("callscribe-claude", isDirectory: true)
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        process.currentDirectoryURL = scratch
+
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout
