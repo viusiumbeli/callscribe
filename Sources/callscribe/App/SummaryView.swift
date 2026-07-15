@@ -54,17 +54,17 @@ struct SummaryView: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                 case .bullets(let items):
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(items, id: \.self) { item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text("•").foregroundStyle(.secondary)
-                                Text(.init(item))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .contextMenu { Button("Copy") { copyToPasteboard(item) } }
+                    // A single Text (not one per bullet) so a drag selects
+                    // across lines — SwiftUI text selection can't span separate
+                    // Text views.
+                    Self.bulletText(items)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .contextMenu {
+                            Button("Copy") {
+                                copyToPasteboard(items.map { "- \($0)" }.joined(separator: "\n"))
                             }
                         }
-                    }
-                    .textSelection(.enabled)   // select/copy across bullets
 
                 case .tasks(let tasks):
                     VStack(alignment: .leading, spacing: 6) {
@@ -101,6 +101,17 @@ struct SummaryView: View {
                 }
             }
         }
+    }
+
+    /// Bullets as one concatenated Text (selectable across lines), keeping each
+    /// item's inline markdown.
+    static func bulletText(_ items: [String]) -> Text {
+        var result = Text("")
+        for (i, item) in items.enumerated() {
+            if i > 0 { result = result + Text("\n") }
+            result = result + Text("•  ").foregroundColor(.secondary) + Text(.init(item))
+        }
+        return result
     }
 
     private func copyToPasteboard(_ text: String) {
