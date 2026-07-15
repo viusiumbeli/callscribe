@@ -96,6 +96,7 @@ struct CallDetailView: View {
                         .frame(width: 20)
                 }
                 .buttonStyle(.borderedProminent)
+                .pointerCursor()
 
                 Text(CallAudioPlayer.clock(player.currentTime))
                     .font(.caption).monospacedDigit().foregroundStyle(.secondary)
@@ -140,6 +141,7 @@ struct CallDetailView: View {
                 NSPasteboard.general.setString(transcript, forType: .string)
             }
             .disabled(transcript.isEmpty)
+            .pointerCursor()
 
             // Always available: create the summary if missing, or regenerate
             // it (e.g. to get a title / speaker names) when it already exists.
@@ -147,6 +149,7 @@ struct CallDetailView: View {
                 run { try await state.retrySummary(for: call.folder) }
             }
             .disabled(busy || transcript.isEmpty)
+            .pointerCursor()
 
             Spacer()
 
@@ -157,6 +160,7 @@ struct CallDetailView: View {
                 Label("Open Folder", systemImage: "folder")
             }
             .help("Open this call's folder in Finder")
+            .pointerCursor()
 
             Button(role: .destructive) {
                 confirmingDelete = true
@@ -165,6 +169,7 @@ struct CallDetailView: View {
             }
             .tint(.red)
             .help("Delete this recording and all of its files")
+            .pointerCursor()
         }
     }
 

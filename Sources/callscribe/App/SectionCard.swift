@@ -63,11 +63,11 @@ struct SectionCard<Content: View>: View {
 }
 
 extension View {
-    /// Show the pointing-hand cursor while hovering (macOS controls don't do
-    /// this for plain/borderless buttons).
+    /// Show the pointing-hand cursor while hovering. Uses SwiftUI's managed
+    /// pointer style (macOS 15+) rather than NSCursor.push()/pop(), whose
+    /// unbalanced calls corrupt the process-wide cursor stack and leave the
+    /// cursor stuck after the first hover.
     func pointerCursor() -> some View {
-        onHover { inside in
-            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        pointerStyle(.link)
     }
 }
