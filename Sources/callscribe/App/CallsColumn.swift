@@ -27,9 +27,6 @@ struct CallsColumn: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 240, ideal: 280)
-        .toolbar {
-            Button { state.refreshHistory() } label: { Image(systemName: "arrow.clockwise") }
-        }
         .confirmationDialog(
             "Delete this recording?",
             isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
