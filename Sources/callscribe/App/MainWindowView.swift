@@ -74,16 +74,14 @@ struct MainWindowView: View {
         }
     }
 
+    @ViewBuilder
     private func projectButton(_ project: Project) -> some View {
         let isSelected = project.id == state.selectedProjectID
-        return Button {
+        let button = Button {
             state.selectedProjectID = project.id
         } label: {
             Text(project.name)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(isSelected ? Color.accentColor : Color(nsColor: .controlColor))
-        .foregroundStyle(isSelected ? Color.white : Color.primary)
         .contextMenu {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([project.rootURL])
@@ -93,6 +91,15 @@ struct MainWindowView: View {
                     state.removeProject(project.id)
                 }
             }
+        }
+        .pointerCursor()
+
+        // Selected = filled accent (white label); others = a normal bordered
+        // button with the default (visible) label color.
+        if isSelected {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
         }
     }
 }
