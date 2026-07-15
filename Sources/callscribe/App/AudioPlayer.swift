@@ -3,18 +3,29 @@ import CallScribeCore
 import Foundation
 import Observation
 
-/// Plays a call's two tracks (mic = "Me", system = "Others") mixed and synced
-/// through a single AVPlayer, so the whole conversation is heard with one
-/// transport. Tolerates a missing track.
+/// Plays a call's two tracks (mic = "Me", system = "Others") through one synced
+/// AVPlayer. A track selector controls which is audible: "Both" mixes them
+/// (echoes if recorded on speakers), "Them" plays only the clean system track.
 @MainActor
 @Observable
 final class CallAudioPlayer {
+    enum TrackMode: String, CaseIterable, Identifiable {
+        case both = "Both", me = "Me", them = "Them"
+        var id: String { rawValue }
+    }
+
     private(set) var isPlaying = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var isReady = false
+    private(set) var hasBothTracks = false
+
+    var mode: TrackMode = .both { didSet { applyMix() } }
 
     private var player: AVPlayer?
+    private var playerItem: AVPlayerItem?
+    private var micTrack: AVMutableCompositionTrack?
+    private var systemTrack: AVMutableCompositionTrack?
     private var observer: Any?
 
     /// (Re)build the player for a call folder. No-op-safe if neither WAV exists.
@@ -27,7 +38,7 @@ final class CallAudioPlayer {
         let composition = AVMutableComposition()
         var maxDuration = CMTime.zero
 
-        for wav in [folder.micWAV, folder.systemWAV] {
+        for (wav, isMic) in [(folder.micWAV, true), (folder.systemWAV, false)] {
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
             let asset = AVURLAsset(url: wav)
             guard let sourceTrack = try? await asset.loadTracks(withMediaType: .audio).first,
@@ -35,19 +46,23 @@ final class CallAudioPlayer {
                   let track = composition.addMutableTrack(
                       withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
             else { continue }
-            let range = CMTimeRange(start: .zero, duration: assetDuration)
-            try? track.insertTimeRange(range, of: sourceTrack, at: .zero)
+            try? track.insertTimeRange(
+                CMTimeRange(start: .zero, duration: assetDuration), of: sourceTrack, at: .zero)
+            if isMic { micTrack = track } else { systemTrack = track }
             if assetDuration > maxDuration { maxDuration = assetDuration }
         }
 
         guard maxDuration > .zero else { return }
         duration = maxDuration.seconds
+        hasBothTracks = micTrack != nil && systemTrack != nil
 
-        let player = AVPlayer(playerItem: AVPlayerItem(asset: composition))
+        let item = AVPlayerItem(asset: composition)
+        playerItem = item
+        let player = AVPlayer(playerItem: item)
         self.player = player
+        applyMix()
         isReady = true
 
-        // Drive the scrubber and stop state.
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
             queue: .main
@@ -61,6 +76,25 @@ final class CallAudioPlayer {
                 }
             }
         }
+    }
+
+    /// Mute tracks per the selected mode via an audio mix (no re-decode).
+    private func applyMix() {
+        guard let playerItem else { return }
+        var params: [AVMutableAudioMixInputParameters] = []
+        if let micTrack {
+            let p = AVMutableAudioMixInputParameters(track: micTrack)
+            p.setVolume(mode == .them ? 0 : 1, at: .zero)   // mic carries "Me"
+            params.append(p)
+        }
+        if let systemTrack {
+            let p = AVMutableAudioMixInputParameters(track: systemTrack)
+            p.setVolume(mode == .me ? 0 : 1, at: .zero)     // system carries "Them"
+            params.append(p)
+        }
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = params
+        playerItem.audioMix = mix
     }
 
     func togglePlayPause() {
@@ -90,8 +124,12 @@ final class CallAudioPlayer {
         observer = nil
         player?.pause()
         player = nil
+        playerItem = nil
+        micTrack = nil
+        systemTrack = nil
         isPlaying = false
         isReady = false
+        hasBothTracks = false
         currentTime = 0
         duration = 0
     }

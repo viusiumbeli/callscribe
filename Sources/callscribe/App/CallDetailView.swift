@@ -77,28 +77,47 @@ struct CallDetailView: View {
     // MARK: - Playback
 
     private var playbackBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                player.togglePlayPause()
-            } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 20)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: 20)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Text(CallAudioPlayer.clock(player.currentTime))
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+
+                Slider(
+                    value: Binding(
+                        get: { player.currentTime },
+                        set: { player.seek(to: $0) }
+                    ),
+                    in: 0...max(player.duration, 0.1)
+                )
+
+                Text(CallAudioPlayer.clock(player.duration))
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderedProminent)
 
-            Text(CallAudioPlayer.clock(player.currentTime))
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-
-            Slider(
-                value: Binding(
-                    get: { player.currentTime },
-                    set: { player.seek(to: $0) }
-                ),
-                in: 0...max(player.duration, 0.1)
-            )
-
-            Text(CallAudioPlayer.clock(player.duration))
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            if player.hasBothTracks {
+                HStack(spacing: 8) {
+                    Picker("", selection: $player.mode) {
+                        Text("Both").tag(CallAudioPlayer.TrackMode.both)
+                        Text("Me").tag(CallAudioPlayer.TrackMode.me)
+                        Text("Them").tag(CallAudioPlayer.TrackMode.them)
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .labelsHidden()
+                    if player.mode == .both {
+                        Text("recorded on speakers? “Them” avoids the echo")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 
