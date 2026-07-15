@@ -14,25 +14,14 @@ struct SectionCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The whole padded header row toggles; the copy button (a real
+            // Button) still intercepts its own clicks.
             HStack(spacing: 8) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: systemImage)
-                            .foregroundStyle(.tint)
-                            .frame(width: 18)
-                        Text(title).font(.headline)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+                Image(systemName: systemImage)
+                    .foregroundStyle(.tint)
+                    .frame(width: 18)
+                Text(title).font(.headline)
+                Spacer(minLength: 0)
 
                 if let onCopy {
                     Button(action: onCopy) {
@@ -43,9 +32,19 @@ struct SectionCard<Content: View>: View {
                     .help("Copy this section")
                     .pointerCursor()
                 }
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+            }
+            .pointerCursor()
 
             if isExpanded {
                 Divider()
