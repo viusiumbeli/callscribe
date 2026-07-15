@@ -8,9 +8,9 @@ struct HistoryView: View {
         NavigationSplitView {
             List(state.calls, selection: $selection) { call in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(call.name).font(.body)
-                    if let dur = call.durationSec {
-                        Text("\(Int(dur)) s").font(.caption).foregroundStyle(.secondary)
+                    Text(Self.title(for: call)).font(.body)
+                    if let dur = call.durationSec, dur > 0 {
+                        Text(Self.duration(dur)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .tag(call.id)
@@ -27,5 +27,20 @@ struct HistoryView: View {
             }
         }
         .onAppear { state.refreshHistory() }
+    }
+
+    /// Friendly call title from its start time, falling back to the folder name.
+    static func title(for call: AppState.CallSummary) -> String {
+        guard let started = call.startedAt else { return call.name }
+        return started.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// Clean H:MM:SS / M:SS duration (rounded to whole seconds).
+    static func duration(_ seconds: Double) -> String {
+        let t = Int(seconds.rounded())
+        if t >= 3600 {
+            return String(format: "%d:%02d:%02d", t / 3600, (t % 3600) / 60, t % 60)
+        }
+        return String(format: "%d:%02d", t / 60, t % 60)
     }
 }

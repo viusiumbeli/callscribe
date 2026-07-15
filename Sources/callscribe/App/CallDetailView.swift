@@ -37,7 +37,7 @@ struct CallDetailView: View {
         }
         .onChange(of: call.id, initial: true) { _, _ in load() }
         .onDisappear { player.teardown() }
-        .navigationTitle(call.name)
+        .navigationTitle(HistoryView.title(for: call))
     }
 
     // MARK: - Playback
