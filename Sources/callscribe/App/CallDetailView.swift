@@ -5,6 +5,8 @@ import SwiftUI
 struct CallDetailView: View {
     @Bindable var state: AppState
     let call: AppState.CallSummary
+    /// Called after the call is deleted, so the list can clear its selection.
+    var onDeleted: () -> Void = {}
 
     @State private var transcript = ""
     @State private var summary = ""
@@ -15,6 +17,7 @@ struct CallDetailView: View {
     @State private var player = CallAudioPlayer()
     @State private var showAudio = true
     @State private var showTranscript = true
+    @State private var confirmingDelete = false
 
     var body: some View {
         ScrollView {
@@ -42,6 +45,20 @@ struct CallDetailView: View {
         .onChange(of: call.id, initial: true) { _, _ in load() }
         .onDisappear { player.teardown() }
         .navigationTitle(HistoryView.title(for: call))
+        .confirmationDialog(
+            "Delete this recording?",
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete recording and all its files", role: .destructive) {
+                player.teardown()
+                state.delete(call.folder)
+                onDeleted()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the whole folder — audio, transcript, summary and everything else for this call.")
+        }
     }
 
     // MARK: - Playback
@@ -95,6 +112,14 @@ struct CallDetailView: View {
                 Label("Open Folder", systemImage: "folder")
             }
             .help("Open this call's folder in Finder")
+
+            Button(role: .destructive) {
+                confirmingDelete = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .tint(.red)
+            .help("Delete this recording and all of its files")
         }
     }
 

@@ -46,6 +46,25 @@ private func tempRoot() -> URL {
     #expect(try store.listCalls().isEmpty)
 }
 
+@Test func deleteRemovesTheWholeFolderIncludingCache() throws {
+    let root = tempRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = CallStore(rootURL: root)
+    let folder = try store.createCallFolder(startedAt: Date(timeIntervalSince1970: 1_790_000_000))
+
+    // Populate like a finished call: top-level files + hidden .cache subfolder.
+    try Data("audio".utf8).write(to: folder.micWAV)
+    try Data("audio".utf8).write(to: folder.systemWAV)
+    try Data("# t".utf8).write(to: folder.transcriptMD)
+    try FileManager.default.createDirectory(at: folder.cacheDir, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: folder.whisperMicJSON)
+
+    try store.delete(folder)
+
+    #expect(!FileManager.default.fileExists(atPath: folder.url.path))
+    #expect(try store.listCalls().isEmpty)
+}
+
 @Test func metaRoundTrip() throws {
     let root = tempRoot()
     defer { try? FileManager.default.removeItem(at: root) }

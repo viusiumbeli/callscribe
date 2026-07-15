@@ -39,4 +39,10 @@ public struct CallStore: Sendable {
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
             .map(CallFolder.init(url:))
     }
+
+    /// Delete a call's entire folder — audio, transcript, summary, meta.json and
+    /// the hidden `.cache/` — recursively, leaving nothing behind.
+    public func delete(_ folder: CallFolder) throws {
+        try FileManager.default.removeItem(at: folder.url)
+    }
 }

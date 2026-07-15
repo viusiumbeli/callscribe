@@ -39,6 +39,13 @@ final class AppState {
         return false
     }
 
+    /// Delete a call's entire folder from disk and drop it from history.
+    func delete(_ folder: CallFolder) {
+        try? store.delete(folder)
+        if case .done(let done) = phase, done == folder.url { phase = .idle }
+        refreshHistory()
+    }
+
     func refreshHistory() {
         let folders = (try? store.listCalls()) ?? []
         calls = folders.map { folder in
