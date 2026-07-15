@@ -27,14 +27,18 @@ struct ProjectsSidebar: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 180, ideal: 210)
-        .safeAreaInset(edge: .bottom) {
-            Button(action: onAddProject) {
-                Label("New Project", systemImage: "plus")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                Button(action: onAddProject) {
+                    Label("New Project", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(12)
+                Divider()
             }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .background(.bar)
         }
     }
 
