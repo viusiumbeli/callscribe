@@ -12,9 +12,18 @@ let package = Package(
     targets: [
         .target(name: "CallScribeCore"),
         .target(
+            name: "CSpeexDSP",
+            cSettings: [
+                .define("FLOATING_POINT"),
+                .define("USE_KISS_FFT"),
+                .define("EXPORT", to: ""),
+            ]
+        ),
+        .target(
             name: "CallScribeEngine",
             dependencies: [
                 "CallScribeCore",
+                "CSpeexDSP",
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ]
