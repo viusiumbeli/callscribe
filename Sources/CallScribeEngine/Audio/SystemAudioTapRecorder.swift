@@ -74,13 +74,13 @@ final class SystemAudioTapRecorder: @unchecked Sendable {
             var procID: AudioDeviceIOProcID?
             try checkOSStatus(
                 AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, sink.queue) {
-                    _, inInputData, _, _, _ in
+                    _, inInputData, inInputTime, _, _ in
                     guard let buffer = AVAudioPCMBuffer(
                         pcmFormat: format,
                         bufferListNoCopy: inInputData,
                         deallocator: nil
                     ), buffer.frameLength > 0 else { return }
-                    sink.processInline(buffer)
+                    sink.processInline(buffer, hostTime: inInputTime.pointee.mHostTime)
                 },
                 "create IOProc"
             )

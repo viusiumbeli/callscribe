@@ -21,8 +21,8 @@ final class MicRecorder: @unchecked Sendable {
             throw AudioCaptureError.formatUnsupported("microphone input format unavailable")
         }
         let sink = self.sink
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            sink.enqueue(buffer)
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, when in
+            sink.enqueue(buffer, hostTime: when.hostTime)
         }
         engine.prepare()
         try engine.start()

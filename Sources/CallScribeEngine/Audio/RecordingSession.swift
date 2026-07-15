@@ -49,8 +49,10 @@ public final class RecordingSession: @unchecked Sendable {
         self.appVersion = appVersion
         self.language = language
         self.onStall = onStall
-        self.micSink = try TrackSink(url: folder.micWAV, label: "mic")
-        self.systemSink = try TrackSink(url: folder.systemWAV, label: "system")
+        // Shared clock zero for both tracks (see TrackSink lead-in silence).
+        let sessionStart = mach_absolute_time()
+        self.micSink = try TrackSink(url: folder.micWAV, label: "mic", sessionStartHostTime: sessionStart)
+        self.systemSink = try TrackSink(url: folder.systemWAV, label: "system", sessionStartHostTime: sessionStart)
         self.micRecorder = MicRecorder(sink: micSink)
         self.systemRecorder = SystemAudioTapRecorder(sink: systemSink)
 
@@ -84,6 +86,8 @@ public final class RecordingSession: @unchecked Sendable {
 
         meta.endedAt = Date()
         meta.durationSec = max(micSink.duration, systemSink.duration)
+        meta.micStartOffsetSec = micSink.startOffsetSec
+        meta.systemStartOffsetSec = systemSink.startOffsetSec
         try folder.saveMeta(meta)
         return folder
     }
