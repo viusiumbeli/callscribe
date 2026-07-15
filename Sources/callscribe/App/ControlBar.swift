@@ -16,28 +16,46 @@ struct ControlBar: View {
                 Button("Open Last Call") { NSWorkspace.shared.open(folder) }
             }
         } else {
-            HStack(spacing: 12) {
-                statusView
+            HStack(spacing: 14) {
+                Image(systemName: state.isRecording ? "waveform.circle.fill" : "waveform.circle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(state.isRecording ? Color.red : Color.accentColor)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("CallScribe").font(.headline)
+                    statusView.font(.callout)
+                }
+
                 Spacer()
+
                 if case .done(let folder) = state.phase {
                     Button("Open Last Call") { NSWorkspace.shared.open(folder) }
+                        .controlSize(.large)
                 }
                 recordButton
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .keyboardShortcut("r")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.bar)
         }
     }
 
     @ViewBuilder private var recordButton: some View {
         switch state.phase {
         case .recording:
-            Button("■ Stop & Transcribe") { state.stopRecording() }
+            Button { state.stopRecording() } label: {
+                Label("Stop & Transcribe", systemImage: "stop.circle.fill")
+            }
         case .processing:
-            Button("Processing…") {}.disabled(true)
+            Button {} label: { Label("Processing…", systemImage: "hourglass") }
+                .disabled(true)
         default:
-            Button("● Start Recording") { state.startRecording() }
+            Button { state.startRecording() } label: {
+                Label("Start Recording", systemImage: "record.circle")
+            }
         }
     }
 
