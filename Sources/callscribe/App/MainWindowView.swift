@@ -18,14 +18,18 @@ struct MainWindowView: View {
         .frame(minWidth: 720, minHeight: 460)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Text(RecordStatus.text(state.phase))
-                    .foregroundStyle(state.isRecording ? Color.red : Color.secondary)
+                // "Ready" is just noise in the idle state — only show status
+                // once something is happening.
+                if case .idle = state.phase {} else {
+                    RecordStatusChip(phase: state.phase)
+                }
                 if case .done(let folder) = state.phase {
                     Button { NSWorkspace.shared.open(folder) } label: {
                         Label("Open Last Call", systemImage: "folder")
                     }
                 }
                 RecordButton(state: state)
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut("r")
             }
         }

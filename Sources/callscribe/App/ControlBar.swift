@@ -19,6 +19,37 @@ enum RecordStatus {
     }
 }
 
+/// A small status pill for the toolbar: icon (or spinner) + text.
+struct RecordStatusChip: View {
+    let phase: AppState.Phase
+
+    var body: some View {
+        HStack(spacing: 5) {
+            icon
+            Text(RecordStatus.text(phase)).font(.callout)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch phase {
+        case .recording:
+            Image(systemName: "record.circle").foregroundStyle(.red)
+        case .processing:
+            ProgressView().controlSize(.small).scaleEffect(0.75)
+        case .done:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .idle:
+            Image(systemName: "circle")
+        }
+    }
+}
+
 /// The Start / Stop / Processing button, shared by the window toolbar and the
 /// tray menu.
 struct RecordButton: View {
