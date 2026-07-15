@@ -7,12 +7,19 @@ struct MainWindowView: View {
 
     @State private var selectedCallID: String?
     @State private var showNewProject = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
 
     var body: some View {
         VStack(spacing: 0) {
-            ProjectBar(state: state, onAddProject: { showNewProject = true })
+            ProjectBar(
+                state: state,
+                onAddProject: { showNewProject = true },
+                onToggleSidebar: {
+                    columnVisibility = columnVisibility == .detailOnly ? .doubleColumn : .detailOnly
+                }
+            )
 
-            NavigationSplitView {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
                 VStack(spacing: 0) {
                     if case .failed(let message) = state.phase {
                         ErrorBanner(message: message) { state.clearError() }
@@ -28,6 +35,7 @@ struct MainWindowView: View {
                     ContentUnavailableView("No call selected", systemImage: "waveform")
                 }
             }
+            .toolbar(removing: .sidebarToggle)
         }
         .frame(minWidth: 900, minHeight: 520)
         .onChange(of: state.selectedProjectID) { selectedCallID = nil }

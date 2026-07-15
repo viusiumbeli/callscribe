@@ -7,23 +7,33 @@ import SwiftUI
 struct ProjectBar: View {
     @Bindable var state: AppState
     var onAddProject: () -> Void
+    var onToggleSidebar: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(state.projects) { project in
-                        chip(project)
-                    }
-                    Button(action: onAddProject) {
-                        Label("New", systemImage: "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Create a new project")
+            HStack(spacing: 8) {
+                Button(action: onToggleSidebar) {
+                    Image(systemName: "sidebar.left")
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .buttonStyle(.borderless)
+                .help("Show or hide the calls list")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(state.projects) { project in
+                            chip(project)
+                        }
+                    }
+                }
+
+                Button(action: onAddProject) {
+                    Label("New", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .help("Create a new project")
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             Divider()
         }
         .background(.bar)
