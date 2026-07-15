@@ -13,6 +13,8 @@ struct CallDetailView: View {
     @State private var selectedLabel = ""
     @State private var renameTo = ""
     @State private var player = CallAudioPlayer()
+    @State private var showAudio = true
+    @State private var showTranscript = true
 
     var body: some View {
         ScrollView {
@@ -20,7 +22,7 @@ struct CallDetailView: View {
                 actions
 
                 if player.isReady {
-                    section("Audio") { playbackBar }
+                    collapsibleSection("Audio", isExpanded: $showAudio) { playbackBar }
                 }
 
                 if !summary.isEmpty {
@@ -29,7 +31,7 @@ struct CallDetailView: View {
 
                 if !speakerLabels.isEmpty { renameControls }
 
-                section("Transcript") {
+                collapsibleSection("Transcript", isExpanded: $showTranscript) {
                     Text(transcript.isEmpty ? "No transcript." : transcript)
                         .textSelection(.enabled)
                         .font(.system(.body, design: .default))
@@ -116,10 +118,18 @@ struct CallDetailView: View {
         .font(.callout)
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func collapsibleSection<Content: View>(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let inner = content()
+        return DisclosureGroup(isExpanded: isExpanded) {
+            inner
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+        } label: {
             Text(title).font(.headline)
-            content()
         }
     }
 

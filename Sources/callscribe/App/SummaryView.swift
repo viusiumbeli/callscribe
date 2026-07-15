@@ -9,16 +9,19 @@ struct SummaryView: View {
     /// Called with a task's global index when its checkbox is toggled.
     var onToggle: (Int) -> Void
 
+    /// Section titles the user has collapsed (empty ⇒ all expanded).
+    @State private var collapsed: Set<String> = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(SummaryMarkdown.parse(markdown).enumerated()), id: \.offset) { _, section in
                 if section.title.isEmpty {
                     blocks(section.blocks)
                 } else {
-                    GroupBox {
+                    DisclosureGroup(isExpanded: expansion(section.title)) {
                         blocks(section.blocks)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 2)
+                            .padding(.top, 4)
                     } label: {
                         Label(section.title, systemImage: Self.icon(for: section.title))
                             .font(.headline)
@@ -26,6 +29,15 @@ struct SummaryView: View {
                 }
             }
         }
+    }
+
+    private func expansion(_ title: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsed.contains(title) },
+            set: { open in
+                if open { collapsed.remove(title) } else { collapsed.insert(title) }
+            }
+        )
     }
 
     private func blocks(_ blocks: [SummaryMarkdown.Block]) -> some View {
