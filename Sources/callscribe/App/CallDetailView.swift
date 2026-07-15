@@ -112,10 +112,12 @@ struct CallDetailView: View {
             }
             .disabled(transcript.isEmpty)
 
-            if summary.isEmpty {
-                Button("Retry Summary") { run { try await state.retrySummary(for: call.folder) } }
-                    .disabled(busy)
+            // Always available: create the summary if missing, or regenerate
+            // it (e.g. to get a title / speaker names) when it already exists.
+            Button(summary.isEmpty ? "Retry Summary" : "Regenerate Summary") {
+                run { try await state.retrySummary(for: call.folder) }
             }
+            .disabled(busy || transcript.isEmpty)
 
             Spacer()
 
