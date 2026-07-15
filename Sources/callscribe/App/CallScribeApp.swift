@@ -9,7 +9,7 @@ struct CallScribeApp: App {
         Window("CallScribe", id: "main") {
             MainWindowView(state: state)
         }
-        .defaultSize(width: 820, height: 560)
+        .defaultSize(width: 1000, height: 640)
 
         // Tray icon stays for quick control while the window is closed.
         MenuBarExtra {

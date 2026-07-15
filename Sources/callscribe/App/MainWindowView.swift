@@ -2,51 +2,75 @@ import AppKit
 import CallScribeCore
 import SwiftUI
 
-/// The primary window: a two-column split (the selected project's calls and the
-/// call detail). Project switching + New live in the window title-bar toolbar.
+/// The primary window. A plain two-pane layout (a collapsible calls list and the
+/// call detail) with a single, undivided window toolbar — so the project header
+/// stays pinned to the window's left regardless of the calls pane.
 struct MainWindowView: View {
     @Bindable var state: AppState
 
     @State private var selectedCallID: String?
     @State private var showNewProject = false
+    @State private var showHistory = true
+
+    private var selectedCall: AppState.CallSummary? {
+        state.calls.first { $0.id == selectedCallID }
+    }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             VStack(spacing: 0) {
                 if case .failed(let message) = state.phase {
                     ErrorBanner(message: message) { state.clearError() }
                         .padding([.horizontal, .top], 10)
                 }
-                CallsColumn(state: state, selection: $selectedCallID)
+                HStack(spacing: 0) {
+                    if showHistory {
+                        CallsColumn(state: state, selection: $selectedCallID)
+                            .frame(minWidth: 240, idealWidth: 280, maxWidth: 340)
+                        Divider()
+                    }
+                    detailPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-        } detail: {
-            if let call = state.calls.first(where: { $0.id == selectedCallID }) {
-                CallDetailView(state: state, call: call) { selectedCallID = nil }
-                    .id(call.id)
-            } else {
-                ContentUnavailableView("No call selected", systemImage: "waveform")
+            .frame(minWidth: 900, minHeight: 520)
+            .navigationTitle(selectedCall.map(CallFormatting.title) ?? "")
+            .toolbar {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button {
+                        showHistory.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .help("Show or hide the calls list")
+
+                    ForEach(state.projects) { project in
+                        projectButton(project)
+                    }
+
+                    Button {
+                        showNewProject = true
+                    } label: {
+                        Label("New", systemImage: "plus")
+                    }
+                    .help("Create a new project")
+                }
             }
         }
-        .frame(minWidth: 900, minHeight: 520)
-        .navigationTitle("")
         .onChange(of: state.selectedProjectID) { selectedCallID = nil }
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                ForEach(state.projects) { project in
-                    projectButton(project)
-                }
-                Button {
-                    showNewProject = true
-                } label: {
-                    Label("New", systemImage: "plus")
-                }
-                .help("Create a new project")
-            }
-        }
         .sheet(isPresented: $showNewProject) {
             NewProjectSheet { name, parent in
                 state.addProject(name: name, parentURL: parent)
             }
+        }
+    }
+
+    @ViewBuilder private var detailPane: some View {
+        if let call = selectedCall {
+            CallDetailView(state: state, call: call) { selectedCallID = nil }
+                .id(call.id)
+        } else {
+            ContentUnavailableView("No call selected", systemImage: "waveform")
         }
     }
 
