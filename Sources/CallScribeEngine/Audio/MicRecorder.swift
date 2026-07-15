@@ -10,8 +10,20 @@ final class MicRecorder: @unchecked Sendable {
         self.sink = sink
     }
 
+    /// When true, enable acoustic echo cancellation on the mic so system audio
+    /// played through the speakers (the remote voice) is removed from the "Me"
+    /// track — otherwise it bleeds in and gets transcribed on both tracks.
+    var echoCancellation = true
+
     func start() throws {
         let input = engine.inputNode
+
+        if echoCancellation {
+            // Voice processing = AEC + noise suppression + AGC. Best-effort:
+            // if the current device can't do it, fall back to raw capture.
+            try? input.setVoiceProcessingEnabled(true)
+        }
+
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw AudioCaptureError.formatUnsupported("microphone input format unavailable")
