@@ -133,6 +133,11 @@ final class AppState {
                 }
                 phase = .done(folder: folder.url)
                 refreshHistory()
+                // "Done" is a brief confirmation, not a resting state — clear it.
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    if case .done(let f) = phase, f == folder.url { phase = .idle }
+                }
             } catch {
                 phase = .failed(error.localizedDescription)
                 refreshHistory()
