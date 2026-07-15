@@ -47,8 +47,23 @@ struct ControlBar: View {
             Label(statusText, systemImage: "record.circle").foregroundStyle(.red)
         case .processing:
             HStack(spacing: 6) { ProgressView().controlSize(.small); Text(statusText) }
-        case .failed:
-            Label(statusText, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+        case .failed(let message):
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                Text(message)
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .help(message)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(message, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .help("Copy the full error text")
+            }
         default:
             Text(statusText).foregroundStyle(.secondary)
         }
