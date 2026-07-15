@@ -7,7 +7,7 @@ import Foundation
 /// starting over — and never loses the transcript.
 public actor PipelineRunner {
     public enum Stage: String, Sendable {
-        case transcribe, diarize, merge, summarize
+        case echoCancel, transcribe, diarize, merge, summarize
     }
 
     private let folder: CallFolder
@@ -37,11 +37,19 @@ public actor PipelineRunner {
         try FileManager.default.createDirectory(at: folder.cacheDir, withIntermediateDirectories: true)
         var meta = try folder.loadMeta()
 
+        // 0. Cancel speaker echo from the mic track (best-effort; never fatal).
+        if force || !meta.pipeline.echoCanceled {
+            onStage?(.echoCancel)
+            EchoCanceller.process(micWAV: folder.micWAV, systemWAV: folder.systemWAV, outWAV: folder.micCleanWAV)
+            meta.pipeline.echoCanceled = true
+            try folder.saveMeta(meta)
+        }
+
         // 1. Transcribe both tracks (serially, one model instance).
         if force || !meta.pipeline.transcribed {
             onStage?(.transcribe)
             let transcriber = try await WhisperTranscriber(model: whisperModel, modelFolder: modelsDir)
-            let mic = try await transcriber.transcribe(wav: folder.micWAV, language: meta.language)
+            let mic = try await transcriber.transcribe(wav: micSource(), language: meta.language)
             let system = try await transcriber.transcribe(wav: folder.systemWAV, language: meta.language)
             try write(mic, to: folder.whisperMicJSON)
             try write(system, to: folder.whisperSystemJSON)
@@ -93,9 +101,12 @@ public actor PipelineRunner {
         try FileManager.default.createDirectory(at: folder.cacheDir, withIntermediateDirectories: true)
         var meta = try folder.loadMeta()
         switch stage {
+        case .echoCancel:
+            EchoCanceller.process(micWAV: folder.micWAV, systemWAV: folder.systemWAV, outWAV: folder.micCleanWAV)
+            meta.pipeline.echoCanceled = true
         case .transcribe:
             let transcriber = try await WhisperTranscriber(model: whisperModel, modelFolder: modelsDir)
-            let mic = try await transcriber.transcribe(wav: folder.micWAV, language: meta.language)
+            let mic = try await transcriber.transcribe(wav: micSource(), language: meta.language)
             let system = try await transcriber.transcribe(wav: folder.systemWAV, language: meta.language)
             try write(mic, to: folder.whisperMicJSON)
             try write(system, to: folder.whisperSystemJSON)
@@ -139,6 +150,13 @@ public actor PipelineRunner {
         )
         let markdown = TranscriptMarkdownRenderer.render(transcript, names: names)
         try markdown.write(to: folder.transcriptMD, atomically: true, encoding: .utf8)
+    }
+
+    /// The mic signal to transcribe: the echo-cancelled track when present,
+    /// else the raw mic.
+    private func micSource() -> URL {
+        FileManager.default.fileExists(atPath: folder.micCleanWAV.path)
+            ? folder.micCleanWAV : folder.micWAV
     }
 
     private func write<T: Encodable>(_ value: T, to url: URL) throws {

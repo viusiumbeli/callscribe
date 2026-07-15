@@ -18,6 +18,9 @@ public struct CallFolder: Sendable, Hashable {
     public var metaJSON: URL { url.appendingPathComponent("meta.json") }
 
     public var cacheDir: URL { url.appendingPathComponent(".cache") }
+    /// Echo-cancelled mic track (produced by the echoCancel stage); the "Me"
+    /// signal with the remote voice removed.
+    public var micCleanWAV: URL { cacheDir.appendingPathComponent("mic-clean.wav") }
     public var whisperMicJSON: URL { cacheDir.appendingPathComponent("whisper-mic.json") }
     public var whisperSystemJSON: URL { cacheDir.appendingPathComponent("whisper-system.json") }
     public var diarizationJSON: URL { cacheDir.appendingPathComponent("diarization.json") }

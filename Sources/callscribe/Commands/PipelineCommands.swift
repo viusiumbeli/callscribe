@@ -63,6 +63,20 @@ struct DiarizeCommand: AsyncParsableCommand {
     }
 }
 
+struct EchoCancelCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "echocancel",
+        abstract: "Remove speaker echo from the mic track (writes .cache/mic-clean.wav)."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+
+    func run() async throws {
+        let runner = try makeRunner(callFolder(folder), withSummarizer: false)
+        _ = try await runner.runStage(.echoCancel, force: true)
+        print("Echo-cancelled → .cache/mic-clean.wav")
+    }
+}
+
 struct MergeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "merge",

@@ -4,12 +4,24 @@ import Foundation
 /// real-name mapping, and pipeline stage flags that make processing resumable.
 public struct CallMeta: Codable, Sendable, Equatable {
     public struct PipelineState: Codable, Sendable, Equatable {
+        public var echoCanceled = false
         public var transcribed = false
         public var diarized = false
         public var merged = false
         public var summarized = false
 
         public init() {}
+
+        // Tolerant decode: missing flags (e.g. `echoCanceled` in meta.json
+        // written by an older build) default to false rather than throwing.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            echoCanceled = try c.decodeIfPresent(Bool.self, forKey: .echoCanceled) ?? false
+            transcribed = try c.decodeIfPresent(Bool.self, forKey: .transcribed) ?? false
+            diarized = try c.decodeIfPresent(Bool.self, forKey: .diarized) ?? false
+            merged = try c.decodeIfPresent(Bool.self, forKey: .merged) ?? false
+            summarized = try c.decodeIfPresent(Bool.self, forKey: .summarized) ?? false
+        }
     }
 
     public var startedAt: Date

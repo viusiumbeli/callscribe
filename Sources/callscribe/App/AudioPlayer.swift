@@ -38,7 +38,10 @@ final class CallAudioPlayer {
         let composition = AVMutableComposition()
         var maxDuration = CMTime.zero
 
-        for (wav, isMic) in [(folder.micWAV, true), (folder.systemWAV, false)] {
+        // Prefer the echo-cancelled mic ("Me") when it exists.
+        let micURL = FileManager.default.fileExists(atPath: folder.micCleanWAV.path)
+            ? folder.micCleanWAV : folder.micWAV
+        for (wav, isMic) in [(micURL, true), (folder.systemWAV, false)] {
             guard FileManager.default.fileExists(atPath: wav.path) else { continue }
             let asset = AVURLAsset(url: wav)
             guard let sourceTrack = try? await asset.loadTracks(withMediaType: .audio).first,
