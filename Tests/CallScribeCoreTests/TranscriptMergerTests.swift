@@ -190,6 +190,53 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         let u = Utterance(speaker: .me, words: [w(" Hello", 0, 0.3), w(" world", 0.4, 0.7)])
         #expect(u.text == "Hello world")
     }
+
+    @Test func echoBleedIsRemovedFromMe() {
+        // Speaker bleed: the remote line is captured on the system track AND
+        // (via the speakers) on the mic at the same time. The mic copy is dropped.
+        let line = [w("Friday", 2.0, 2.4), w("works", 2.5, 2.9), w("for", 3.0, 3.2), w("launch", 3.3, 3.7)]
+        let t = TranscriptMerger.merge(
+            micWords: line,                 // bleed
+            systemWords: line,              // real remote
+            spans: [span("A", 1.8, 4.0)]
+        )
+        #expect(t.utterances.count == 1)
+        #expect(t.utterances[0].speaker == .remote(1))
+    }
+
+    @Test func realMeSpeechIsKeptWhenNotOnSystemTrack() {
+        // The user's own words never play through the speakers, so they don't
+        // appear on the system track and must be kept.
+        let t = TranscriptMerger.merge(
+            micWords: [w("my", 0.0, 0.3), w("own", 0.4, 0.7), w("point", 0.8, 1.1)],
+            systemWords: [w("their", 3.0, 3.3), w("reply", 3.4, 3.8)],
+            spans: [span("A", 2.9, 4.0)]
+        )
+        #expect(t.utterances.contains { $0.speaker == .me && $0.text == "my own point" })
+        #expect(t.utterances.contains { $0.speaker == .remote(1) })
+    }
+
+    @Test func nonOverlappingSimilarTextIsNotTreatedAsEcho() {
+        // Same words but at a different time → the user genuinely repeating,
+        // not bleed. Kept.
+        let t = TranscriptMerger.merge(
+            micWords: [w("okay", 10.0, 10.4), w("sounds", 10.5, 10.9), w("good", 11.0, 11.3)],
+            systemWords: [w("okay", 0.0, 0.4), w("sounds", 0.5, 0.9), w("good", 1.0, 1.3)],
+            spans: [span("A", 0.0, 1.5)]
+        )
+        #expect(t.utterances.contains { $0.speaker == .me })
+    }
+
+    @Test func echoDedupDisabledKeepsBothTracks() {
+        var config = MergeConfig()
+        config.echoDedup = false
+        let line = [w("Friday", 2.0, 2.4), w("works", 2.5, 2.9)]
+        let t = TranscriptMerger.merge(
+            micWords: line, systemWords: line, spans: [span("A", 1.8, 3.5)], config: config
+        )
+        #expect(t.utterances.contains { $0.speaker == .me })
+        #expect(t.utterances.contains { $0.speaker == .remote(1) })
+    }
 }
 
 @Suite struct RendererTests {

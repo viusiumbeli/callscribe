@@ -13,5 +13,15 @@ public struct MergeConfig: Sendable {
     /// raise to fight hallucinations on silence.
     public var minWordProbability: Float = 0.0
 
+    /// Remove "Me" utterances that are just the remote voice bleeding into the
+    /// mic through the speakers (they duplicate a system-track utterance at the
+    /// same time). No-op with headphones (no bleed, nothing matches).
+    public var echoDedup = true
+    /// A mic utterance is treated as bleed when it overlaps a system utterance
+    /// by at least this fraction of its own duration…
+    public var echoOverlapFraction = 0.5
+    /// …and their texts share at least this fraction of words (Jaccard).
+    public var echoTextSimilarity = 0.6
+
     public init() {}
 }

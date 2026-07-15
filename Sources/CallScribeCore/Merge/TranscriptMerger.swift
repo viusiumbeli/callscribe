@@ -25,8 +25,16 @@ public enum TranscriptMerger {
         // Build utterances per track *before* interleaving, so simultaneous
         // speech (cross-talk) yields two overlapping utterances instead of
         // shredding into alternating single words.
-        let interleaved = (utterances(from: mic, config: config)
-            + utterances(from: system, config: config))
+        let micUtterances = utterances(from: mic, config: config)
+        let systemUtterances = utterances(from: system, config: config)
+
+        // Strip speaker bleed: drop "Me" utterances that merely echo a
+        // system-track utterance at the same time (mic picking up the speakers).
+        let cleanedMic = config.echoDedup
+            ? micUtterances.filter { !isEcho(of: $0, in: systemUtterances, config: config) }
+            : micUtterances
+
+        let interleaved = (cleanedMic + systemUtterances)
             .sorted { a, b in
                 if a.start != b.start { return a.start < b.start }
                 if (a.speaker == .me) != (b.speaker == .me) { return a.speaker == .me }
@@ -36,6 +44,36 @@ public enum TranscriptMerger {
         return Transcript(
             utterances: coalesce(interleaved, config: config),
             detectedLanguage: detectedLanguage
+        )
+    }
+
+    // MARK: - Echo dedup
+
+    /// True when `mic` is the remote voice bleeding through the speakers: it
+    /// overlaps a system utterance in time and repeats its words.
+    static func isEcho(of mic: Utterance, in system: [Utterance], config: MergeConfig) -> Bool {
+        let micDuration = max(mic.end - mic.start, 0.001)
+        return system.contains { sys in
+            let overlap = min(mic.end, sys.end) - max(mic.start, sys.start)
+            guard overlap / micDuration >= config.echoOverlapFraction else { return false }
+            return textSimilarity(mic.text, sys.text) >= config.echoTextSimilarity
+        }
+    }
+
+    /// Jaccard similarity over lowercased word sets (punctuation stripped).
+    static func textSimilarity(_ a: String, _ b: String) -> Double {
+        let wordsA = wordSet(a), wordsB = wordSet(b)
+        guard !wordsA.isEmpty, !wordsB.isEmpty else { return 0 }
+        let intersection = wordsA.intersection(wordsB).count
+        let union = wordsA.union(wordsB).count
+        return Double(intersection) / Double(union)
+    }
+
+    private static func wordSet(_ text: String) -> Set<String> {
+        Set(
+            text.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
         )
     }
 
