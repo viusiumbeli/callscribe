@@ -22,7 +22,7 @@ struct CallDetailView: View {
                 }
 
                 if !summary.isEmpty {
-                    section("Summary") { Text(.init(summary)).textSelection(.enabled) }
+                    SummaryView(markdown: summary) { index in toggleTask(index) }
                 }
 
                 renameControls
@@ -119,5 +119,12 @@ struct CallDetailView: View {
         transcript = (try? String(contentsOf: call.folder.transcriptMD, encoding: .utf8)) ?? ""
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
         player.load(call.folder)
+    }
+
+    /// Check/uncheck a "My tasks" item and persist it back to summary.md.
+    private func toggleTask(_ index: Int) {
+        let updated = SummaryMarkdown.toggleTask(summary, index: index)
+        summary = updated
+        try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
     }
 }
