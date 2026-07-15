@@ -59,25 +59,29 @@ struct SummaryView: View {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text("•").foregroundStyle(.secondary)
                                 Text(.init(item))
-                                    .textSelection(.enabled)
                                     .fixedSize(horizontal: false, vertical: true)
+                                    .contextMenu { Button("Copy") { copyToPasteboard(item) } }
                             }
                         }
                     }
+                    .textSelection(.enabled)   // select/copy across bullets
 
                 case .tasks(let tasks):
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(tasks, id: \.index) { task in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Toggle(isOn: Binding(
+                                Toggle("", isOn: Binding(
                                     get: { task.done },
                                     set: { _ in onToggle(task.index) }
-                                )) {
-                                    Text(.init(task.text))
-                                        .strikethrough(task.done, color: .secondary)
-                                        .foregroundStyle(task.done ? .secondary : .primary)
-                                }
+                                ))
                                 .toggleStyle(.checkbox)
+                                .labelsHidden()
+
+                                Text(.init(task.text))
+                                    .strikethrough(task.done, color: .secondary)
+                                    .foregroundStyle(task.done ? .secondary : .primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .contextMenu { Button("Copy") { copyToPasteboard(task.text) } }
 
                                 Spacer(minLength: 0)
 
@@ -93,6 +97,7 @@ struct SummaryView: View {
                             }
                         }
                     }
+                    .textSelection(.enabled)   // select/copy across tasks
                 }
             }
         }
