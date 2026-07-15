@@ -55,6 +55,45 @@ import Testing
         #expect(result.markdown.contains("Content."))
     }
 
+    @Test func extractsTitleAlongsideSpeakers() {
+        let response = """
+        ## Summary
+        A quick sync.
+
+        ```json
+        {"title": "Launch planning sync", "speakers": {"Speaker 1": "Misha"}}
+        ```
+        """
+        let result = SummaryPrompt.parse(response)
+        #expect(result.title == "Launch planning sync")
+        #expect(result.speakerNames == ["Speaker 1": "Misha"])
+        #expect(!result.markdown.contains("```"))
+    }
+
+    @Test func handlesMultiLineJSONBlock() {
+        let response = """
+        ## Summary
+        Body.
+
+        ```json
+        {
+          "title": "Budget review",
+          "speakers": {
+            "Speaker 1": "Anna"
+          }
+        }
+        ```
+        """
+        let result = SummaryPrompt.parse(response)
+        #expect(result.title == "Budget review")
+        #expect(result.speakerNames == ["Speaker 1": "Anna"])
+    }
+
+    @Test func titleAbsentWhenNoBlock() {
+        let result = SummaryPrompt.parse("## Summary\nNo block here.")
+        #expect(result.title == nil)
+    }
+
     @Test func promptEmbedsTranscript() {
         let prompt = SummaryPrompt.build(transcript: "**[00:00:00] Me:** privet")
         #expect(prompt.contains("privet"))

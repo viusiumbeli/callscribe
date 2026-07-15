@@ -10,16 +10,17 @@ struct HistoryView: View {
             VStack(spacing: 0) {
                 recordHeader
                 Divider()
-                List(state.calls, selection: $selection) { call in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(Self.title(for: call)).font(.body)
-                        if let dur = call.durationSec, dur > 0 {
-                            Text(Self.duration(dur)).font(.caption).foregroundStyle(.secondary)
+                List(selection: $selection) {
+                    ForEach(daySections) { section in
+                        Section(section.title) {
+                            ForEach(section.calls) { call in
+                                callRow(call)
+                                    .tag(call.id)
+                                    .contextMenu {
+                                        Button("Delete", role: .destructive) { pendingDelete = call }
+                                    }
+                            }
                         }
-                    }
-                    .tag(call.id)
-                    .contextMenu {
-                        Button("Delete", role: .destructive) { pendingDelete = call }
                     }
                 }
             }
@@ -70,10 +71,66 @@ struct HistoryView: View {
         .padding(12)
     }
 
-    /// Friendly call title from its start time, falling back to the folder name.
+    /// One call row: the LLM title (or the time, if untitled) plus time/duration.
+    private func callRow(_ call: AppState.CallSummary) -> some View {
+        let sub = Self.subtitle(call)
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(call.title ?? Self.timeText(call)).font(.body).lineLimit(2)
+            if !sub.isEmpty {
+                Text(sub).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Calls grouped into day sections (newest first), preserving call order.
+    private var daySections: [DaySection] {
+        let calendar = Calendar.current
+        var order: [Date] = []
+        var byDay: [Date: [AppState.CallSummary]] = [:]
+        for call in state.calls {
+            let day = call.startedAt.map { calendar.startOfDay(for: $0) } ?? .distantPast
+            if byDay[day] == nil { order.append(day) }
+            byDay[day, default: []].append(call)
+        }
+        return order.map { day in
+            DaySection(
+                id: "\(day.timeIntervalSince1970)",
+                title: Self.dayTitle(day),
+                calls: byDay[day] ?? []
+            )
+        }
+    }
+
+    struct DaySection: Identifiable {
+        let id: String
+        let title: String
+        let calls: [AppState.CallSummary]
+    }
+
+    /// Title/detail-window title: prefer the LLM name, else the start date.
     static func title(for call: AppState.CallSummary) -> String {
+        if let t = call.title, !t.isEmpty { return t }
         guard let started = call.startedAt else { return call.name }
         return started.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    static func timeText(_ call: AppState.CallSummary) -> String {
+        call.startedAt?.formatted(date: .omitted, time: .shortened) ?? call.name
+    }
+
+    static func subtitle(_ call: AppState.CallSummary) -> String {
+        var parts: [String] = []
+        if call.title != nil { parts.append(timeText(call)) }   // keep the time visible
+        if let dur = call.durationSec, dur > 0 { parts.append(duration(dur)) }
+        return parts.joined(separator: " · ")
+    }
+
+    static func dayTitle(_ day: Date) -> String {
+        if day == .distantPast { return "Earlier" }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return "Today" }
+        if calendar.isDateInYesterday(day) { return "Yesterday" }
+        return day.formatted(date: .abbreviated, time: .omitted)
     }
 
     /// Clean H:MM:SS / M:SS duration (rounded to whole seconds).

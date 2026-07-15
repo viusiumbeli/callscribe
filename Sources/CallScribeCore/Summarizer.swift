@@ -12,9 +12,12 @@ public struct SummaryResult: Sendable, Equatable {
     public let markdown: String
     /// Inferred label → real name ("Speaker 1" → "Misha").
     public let speakerNames: [String: String]
+    /// Short title for the call (like an auto-named chat), if produced.
+    public let title: String?
 
-    public init(markdown: String, speakerNames: [String: String]) {
+    public init(markdown: String, speakerNames: [String: String], title: String? = nil) {
         self.markdown = markdown
         self.speakerNames = speakerNames
+        self.title = title
     }
 }

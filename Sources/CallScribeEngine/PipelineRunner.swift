@@ -74,6 +74,7 @@ public actor PipelineRunner {
             let transcript = try String(contentsOf: folder.transcriptMD, encoding: .utf8)
             let result = try await summarizer.summarize(transcript: transcript)
             try result.markdown.write(to: folder.summaryMD, atomically: true, encoding: .utf8)
+            if let title = result.title { meta.title = title }
             if !result.speakerNames.isEmpty {
                 meta.speakerNames.merge(result.speakerNames) { _, new in new }
                 try renderTranscript(names: meta.speakerNames)  // re-render with names
@@ -113,6 +114,7 @@ public actor PipelineRunner {
             let transcript = try String(contentsOf: folder.transcriptMD, encoding: .utf8)
             let result = try await summarizer.summarize(transcript: transcript)
             try result.markdown.write(to: folder.summaryMD, atomically: true, encoding: .utf8)
+            if let title = result.title { meta.title = title }
             if !result.speakerNames.isEmpty {
                 meta.speakerNames.merge(result.speakerNames) { _, new in new }
                 try renderTranscript(names: meta.speakerNames)

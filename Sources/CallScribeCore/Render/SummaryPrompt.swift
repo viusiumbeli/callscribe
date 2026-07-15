@@ -17,13 +17,14 @@ public enum SummaryPrompt {
         ## My tasks
         A checklist (`- [ ]`) of concrete action items assigned to "Me".
 
-        If you can infer any speaker's real name from context (e.g. someone is \
-        addressed as "Misha"), append a fenced JSON block mapping labels to \
-        names. Include ONLY confidently inferred names; omit the block entirely \
-        if none. Example:
+        REQUIRED: end your reply with a fenced ```json block (and nothing after \
+        it) containing a "title" — 3–6 words naming the call, in the \
+        transcript's language — and a "speakers" object mapping labels to any \
+        real names you can confidently infer (use {} if none). Always include \
+        the "title". Example:
 
         ```json
-        {"speakers": {"Speaker 1": "Misha", "Speaker 2": "Anna"}}
+        {"title": "Launch planning sync", "speakers": {"Speaker 1": "Misha"}}
         ```
 
         Transcript:
@@ -33,35 +34,46 @@ public enum SummaryPrompt {
         """
     }
 
-    /// Extract the fenced `{"speakers": {...}}` block, tolerating surrounding
-    /// prose, a missing block, or malformed JSON (→ empty map). The block is
-    /// stripped from the returned Markdown so it doesn't show in summary.md.
+    /// Extract the fenced JSON block (title + speaker names), tolerating
+    /// surrounding prose, multi-line JSON, a missing block, or malformed JSON.
+    /// The block is stripped from the returned Markdown.
     public static func parse(_ response: String) -> SummaryResult {
-        guard let range = response.range(of: #"```json\s*\{.*?\}\s*```"#,
-                                          options: [.regularExpression, .caseInsensitive]) else {
-            return SummaryResult(markdown: response.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 speakerNames: [:])
+        guard let block = fencedJSON(in: response) else {
+            return SummaryResult(
+                markdown: response.trimmingCharacters(in: .whitespacesAndNewlines),
+                speakerNames: [:]
+            )
         }
 
-        let names = parseSpeakerNames(String(response[range]))
+        var names: [String: String] = [:]
+        var title: String?
+        if let data = block.json.data(using: .utf8),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let speakers = root["speakers"] as? [String: Any] {
+                names = speakers.compactMapValues { $0 as? String }
+            }
+            if let t = (root["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !t.isEmpty {
+                title = t
+            }
+        }
+
         var markdown = response
-        markdown.removeSubrange(range)
+        markdown.removeSubrange(block.range)
         return SummaryResult(
             markdown: markdown.trimmingCharacters(in: .whitespacesAndNewlines),
-            speakerNames: names
+            speakerNames: names,
+            title: title
         )
     }
 
-    private static func parseSpeakerNames(_ fenced: String) -> [String: String] {
-        let json = fenced
-            .replacingOccurrences(of: "```json", with: "", options: .caseInsensitive)
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = json.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let speakers = root["speakers"] as? [String: Any] else {
-            return [:]
-        }
-        return speakers.compactMapValues { $0 as? String }
+    /// Locate a ```json … ``` fenced block; returns its inner text and the
+    /// range of the whole block (fences included) so it can be stripped.
+    private static func fencedJSON(in text: String) -> (json: String, range: Range<String.Index>)? {
+        guard let open = text.range(of: "```json", options: .caseInsensitive),
+              let close = text.range(of: "```", range: open.upperBound..<text.endIndex)
+        else { return nil }
+        let json = String(text[open.upperBound..<close.lowerBound])
+        return (json, open.lowerBound..<close.upperBound)
     }
 }

@@ -27,6 +27,7 @@ final class AppState {
         let folder: CallFolder
         let startedAt: Date?
         let durationSec: Double?
+        let title: String?
         var name: String { folder.name }
     }
 
@@ -59,7 +60,8 @@ final class AppState {
                 id: folder.name,
                 folder: folder,
                 startedAt: meta?.startedAt,
-                durationSec: meta?.durationSec
+                durationSec: meta?.durationSec,
+                title: meta?.title
             )
         }
     }

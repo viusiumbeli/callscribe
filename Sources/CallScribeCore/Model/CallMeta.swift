@@ -15,6 +15,8 @@ public struct CallMeta: Codable, Sendable, Equatable {
     public var startedAt: Date
     public var endedAt: Date?
     public var durationSec: Double?
+    /// Short LLM-generated title (from the summarizer); nil until summarized.
+    public var title: String?
     /// Whisper language override ("ru"/"en"); nil = auto-detect.
     public var language: String?
     /// Detected language of the call, filled in after transcription.
