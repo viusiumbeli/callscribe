@@ -96,6 +96,22 @@ public enum SummaryMarkdown {
         return lines.joined(separator: "\n")
     }
 
+    /// Remove the `index`-th checklist item line entirely and return the result.
+    public static func removeTask(_ markdown: String, index: Int) -> String {
+        var count = 0
+        var lines = markdown.components(separatedBy: "\n")
+        for i in lines.indices {
+            let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+            guard trimmed.wholeMatch(of: /[-*]\s+\[[ xX]\]\s+.*/) != nil else { continue }
+            if count == index {
+                lines.remove(at: i)
+                break
+            }
+            count += 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - Line parsing
 
     static func parseTask(_ line: String, index: Int) -> Task? {

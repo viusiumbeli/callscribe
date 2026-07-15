@@ -45,7 +45,11 @@ struct CallDetailView: View {
                 }
 
                 if !summary.isEmpty {
-                    SummaryView(markdown: summary) { index in toggleTask(index) }
+                    SummaryView(
+                        markdown: summary,
+                        onToggle: { index in toggleTask(index) },
+                        onDeleteTask: { index in deleteTask(index) }
+                    )
                 }
 
                 if !speakerLabels.isEmpty {
@@ -228,6 +232,13 @@ struct CallDetailView: View {
     /// Check/uncheck a "My tasks" item and persist it back to summary.md.
     private func toggleTask(_ index: Int) {
         let updated = SummaryMarkdown.toggleTask(summary, index: index)
+        summary = updated
+        try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
+    }
+
+    /// Delete a "My tasks" item and persist it back to summary.md.
+    private func deleteTask(_ index: Int) {
+        let updated = SummaryMarkdown.removeTask(summary, index: index)
         summary = updated
         try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
     }

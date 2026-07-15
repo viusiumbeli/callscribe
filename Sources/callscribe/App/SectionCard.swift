@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A titled, collapsible card: an icon + title header, a divider, and padded
@@ -7,27 +8,42 @@ struct SectionCard<Content: View>: View {
     let title: String
     let systemImage: String
     @Binding var isExpanded: Bool
+    /// When set, a copy button appears in the header.
+    var onCopy: (() -> Void)? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(.tint)
-                        .frame(width: 18)
-                    Text(title).font(.headline)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: systemImage)
+                            .foregroundStyle(.tint)
+                            .frame(width: 18)
+                        Text(title).font(.headline)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .pointerCursor()
+
+                if let onCopy {
+                    Button(action: onCopy) {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Copy this section")
+                    .pointerCursor()
+                }
             }
-            .buttonStyle(.plain)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
@@ -44,5 +60,15 @@ struct SectionCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor))
         )
+    }
+}
+
+extension View {
+    /// Show the pointing-hand cursor while hovering (macOS controls don't do
+    /// this for plain/borderless buttons).
+    func pointerCursor() -> some View {
+        onHover { inside in
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }

@@ -1,13 +1,17 @@
+import AppKit
 import CallScribeCore
 import SwiftUI
 
-/// Renders the summary Markdown as native blocks: each `## section` is a
-/// GroupBox, agreements are a bullet list, and "My tasks" are checkable items
-/// whose state is persisted via `onToggle`.
+/// Renders the summary Markdown as native cards: each `## section` is a
+/// SectionCard, agreements are a bullet list, and "My tasks" are checkable,
+/// deletable items whose state is persisted via the callbacks. Each section can
+/// be copied as a whole.
 struct SummaryView: View {
     let markdown: String
     /// Called with a task's global index when its checkbox is toggled.
     var onToggle: (Int) -> Void
+    /// Called with a task's global index when it should be deleted.
+    var onDeleteTask: (Int) -> Void
 
     /// Section titles the user has collapsed (empty ⇒ all expanded).
     @State private var collapsed: Set<String> = []
@@ -21,7 +25,8 @@ struct SummaryView: View {
                     SectionCard(
                         title: section.title,
                         systemImage: Self.icon(for: section.title),
-                        isExpanded: expansion(section.title)
+                        isExpanded: expansion(section.title),
+                        onCopy: { copyToPasteboard(Self.plainText(section)) }
                     ) {
                         blocks(section.blocks)
                     }
@@ -63,20 +68,55 @@ struct SummaryView: View {
                 case .tasks(let tasks):
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(tasks, id: \.index) { task in
-                            Toggle(isOn: Binding(
-                                get: { task.done },
-                                set: { _ in onToggle(task.index) }
-                            )) {
-                                Text(.init(task.text))
-                                    .strikethrough(task.done, color: .secondary)
-                                    .foregroundStyle(task.done ? .secondary : .primary)
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Toggle(isOn: Binding(
+                                    get: { task.done },
+                                    set: { _ in onToggle(task.index) }
+                                )) {
+                                    Text(.init(task.text))
+                                        .strikethrough(task.done, color: .secondary)
+                                        .foregroundStyle(task.done ? .secondary : .primary)
+                                }
+                                .toggleStyle(.checkbox)
+
+                                Spacer(minLength: 0)
+
+                                Button {
+                                    onDeleteTask(task.index)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
+                                .help("Delete this task")
+                                .pointerCursor()
                             }
-                            .toggleStyle(.checkbox)
                         }
                     }
                 }
             }
         }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Serialize a section's blocks to portable plain text for copying.
+    static func plainText(_ section: SummaryMarkdown.Section) -> String {
+        var lines: [String] = []
+        for block in section.blocks {
+            switch block {
+            case .paragraph(let text):
+                lines.append(text)
+            case .bullets(let items):
+                lines.append(contentsOf: items.map { "- \($0)" })
+            case .tasks(let tasks):
+                lines.append(contentsOf: tasks.map { "- [\($0.done ? "x" : " ")] \($0.text)" })
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     static func icon(for title: String) -> String {

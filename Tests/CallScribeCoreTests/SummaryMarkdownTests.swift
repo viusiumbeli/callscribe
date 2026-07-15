@@ -74,6 +74,25 @@ import Testing
         #expect(twice.contains("- [ ] Send the recap"))
     }
 
+    @Test func removeTaskDropsTheLineAndRenumbers() {
+        let md = """
+        ## My tasks
+        - [ ] first
+        - [ ] second
+        - [ ] third
+        """
+        let after = SummaryMarkdown.removeTask(md, index: 1)   // remove "second"
+        #expect(!after.contains("second"))
+        #expect(after.contains("- [ ] first"))
+        #expect(after.contains("- [ ] third"))
+        // The remaining tasks renumber 0,1 on re-parse.
+        guard case .tasks(let tasks) = SummaryMarkdown.parse(after)[0].blocks.first else {
+            Issue.record("expected tasks"); return
+        }
+        #expect(tasks.map(\.text) == ["first", "third"])
+        #expect(tasks.map(\.index) == [0, 1])
+    }
+
     @Test func italicPlaceholderIsParsedAsParagraph() {
         let md = "## My tasks\n_No action items._"
         let sections = SummaryMarkdown.parse(md)
