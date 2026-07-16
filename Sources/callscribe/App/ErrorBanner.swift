@@ -22,9 +22,11 @@ struct ErrorBanner: View {
             }
             .buttonStyle(.borderless)
             .help("Copy the full error text")
+            .pointerCursor()
             Button(action: onDismiss) { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
                 .help("Dismiss")
+                .pointerCursor()
         }
         .padding(10)
         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))

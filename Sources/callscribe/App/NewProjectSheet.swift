@@ -25,6 +25,7 @@ struct NewProjectSheet: View {
                 Text("Location").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("Choose Folder…") { pickFolder() }
+                        .pointerCursor()
                     Text(parent?.path ?? "No folder chosen")
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -43,6 +44,7 @@ struct NewProjectSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .pointerCursor()
                 Button("Create") {
                     if let parent { onCreate(trimmedName, parent) }
                     dismiss()
@@ -50,6 +52,7 @@ struct NewProjectSheet: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(trimmedName.isEmpty || parent == nil)
+                .pointerCursor()
             }
         }
         .padding(20)

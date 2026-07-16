@@ -75,6 +75,7 @@ struct BrandButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
             .contentShape(Rectangle())
+            .pointerStyle(.link)
     }
 }
 
@@ -91,5 +92,6 @@ struct SoftButtonStyle: ButtonStyle {
                         in: Capsule(style: .continuous))
             .overlay(Capsule(style: .continuous).strokeBorder(Color.primary.opacity(0.06)))
             .contentShape(Capsule())
+            .pointerStyle(.link)
     }
 }

@@ -43,6 +43,7 @@ struct MainWindowView: View {
                         Image(systemName: "sidebar.left")
                     }
                     .help("Show or hide the calls list")
+                    .pointerCursor()
 
                     ForEach(state.projects) { project in
                         projectButton(project)
@@ -54,6 +55,7 @@ struct MainWindowView: View {
                         Label("New", systemImage: "plus")
                     }
                     .help("Create a new project")
+                    .pointerCursor()
                 }
             }
         }

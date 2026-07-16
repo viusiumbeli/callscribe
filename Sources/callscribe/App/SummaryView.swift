@@ -76,6 +76,7 @@ struct SummaryView: View {
                                 ))
                                 .toggleStyle(.checkbox)
                                 .labelsHidden()
+                                .pointerCursor()
 
                                 Text(.init(task.text))
                                     .strikethrough(task.done, color: .secondary)

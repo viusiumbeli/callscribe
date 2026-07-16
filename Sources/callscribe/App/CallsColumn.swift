@@ -11,21 +11,26 @@ struct CallsColumn: View {
     var body: some View {
         VStack(spacing: 0) {
             recordHeader
-            List(selection: $selection) {
-                ForEach(daySections) { section in
-                    Section(section.title) {
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(daySections) { section in
+                        Text(section.title)
+                            .font(.caption.weight(.semibold))
+                            .textCase(.uppercase)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.top, Spacing.md)
+                            .padding(.bottom, Spacing.xs)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
                         ForEach(section.calls) { call in
                             callRow(call)
-                                .tag(call.id)
-                                .contextMenu {
-                                    Button("Delete", role: .destructive) { pendingDelete = call }
-                                }
                         }
                     }
                 }
+                .padding(Spacing.sm)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
         }
         .confirmationDialog(
             "Delete this recording?",
@@ -61,16 +66,37 @@ struct CallsColumn: View {
         .padding(Spacing.lg)
     }
 
+    /// One call row with a soft brand-tinted highlight when selected (instead of
+    /// the heavy full-saturation List selection bar).
     private func callRow(_ call: AppState.CallSummary) -> some View {
+        let isSelected = selection == call.id
         let sub = CallFormatting.subtitle(call)
-        return VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text(call.title ?? CallFormatting.time(call))
-                .font(.body.weight(.medium)).lineLimit(2)
-            if !sub.isEmpty {
-                Text(sub).font(.caption).foregroundStyle(.secondary)
+        return Button {
+            selection = call.id
+        } label: {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(call.title ?? CallFormatting.time(call))
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(isSelected ? Color.brand : Color.primary)
+                    .lineLimit(2)
+                if !sub.isEmpty {
+                    Text(sub).font(.caption).foregroundStyle(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, Spacing.sm)
+            .padding(.horizontal, Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.brand.opacity(0.15) : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .padding(.vertical, Spacing.xs)
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .contextMenu {
+            Button("Delete", role: .destructive) { pendingDelete = call }
+        }
     }
 
     /// Calls grouped into day sections (newest first), preserving order.
