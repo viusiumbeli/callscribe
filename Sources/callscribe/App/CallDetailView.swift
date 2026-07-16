@@ -59,9 +59,7 @@ struct CallDetailView: View {
                 }
 
                 SectionCard(title: "Transcript", systemImage: "text.quote", isExpanded: $showTranscript) {
-                    Text(transcript.isEmpty ? "No transcript." : transcript)
-                        .textSelection(.enabled)
-                        .font(.system(.body, design: .default))
+                    TranscriptView(transcript: transcript, names: names, player: player)
                 }
             }
             .padding()
