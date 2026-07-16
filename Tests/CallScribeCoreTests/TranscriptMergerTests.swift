@@ -235,6 +235,40 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         #expect(t.utterances.contains { $0.speaker == .remote(1) })
     }
 
+    @Test func partialEchoDropsOnlyTheOverlappingWords() {
+        // A mic utterance that starts as echo (overlaps the remote) but continues
+        // after the remote falls silent: only the echoed prefix is dropped, the
+        // genuine tail survives. (The old whole-utterance filter kept all of it.)
+        let system = [
+            w("это", 2260, 2262), w("же", 2262, 2264), w("ничего", 2264, 2266),
+            w("не", 2266, 2268), w("меняет", 2268, 2293),
+        ]
+        let micEchoPrefix = [w("это", 2261, 2263), w("меняет", 2270, 2272)]        // overlaps system
+        let micGenuine = [w("я", 2300, 2300.4), w("решил", 2300.5, 2301), w("вынести", 2301, 2301.6)]
+        let t = TranscriptMerger.merge(
+            micWords: micEchoPrefix + micGenuine,
+            systemWords: system,
+            spans: [span("A", 2260, 2293)]
+        )
+        let me = t.utterances.filter { $0.speaker == .me }
+        #expect(me.count == 1)
+        #expect(me[0].text == "я решил вынести", "echo prefix dropped, genuine tail kept")
+    }
+
+    @Test func shortEchoResidueIsDroppedButSilenceBackchannelKept() {
+        // A 1-word mic blip that Whisper timed just outside a remote word is echo
+        // residue → dropped. A 1-word backchannel in real silence is kept.
+        let t = TranscriptMerger.merge(
+            micWords: [w("ага", 10.3, 10.6),    // right after remote speech → residue
+                       w("да", 30.0, 30.4)],     // in silence → genuine
+            systemWords: [w("бесконечная", 5.0, 10.0)],
+            spans: [span("A", 5, 10)]
+        )
+        let me = t.utterances.filter { $0.speaker == .me }
+        #expect(me.count == 1)
+        #expect(me[0].text == "да")
+    }
+
     @Test func garbledLaggingEchoFragmentIsRemoved() {
         // A garbled mic fragment sitting on top of a long system utterance is
         // echo. Text-matching can't catch garble, but the time overlap does.

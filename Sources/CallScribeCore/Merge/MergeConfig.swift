@@ -13,17 +13,24 @@ public struct MergeConfig: Sendable {
     /// raise to fight hallucinations on silence.
     public var minWordProbability: Float = 0.0
 
-    /// Remove "Me" utterances that are just the remote voice bleeding into the
-    /// mic through the speakers. On a speakerphone the mic captures the remote
-    /// almost continuously, and Whisper turns that residual echo into
-    /// garbled-but-plausible text — so word-matching can't catch it. Instead we
-    /// suppress by TIME: mic speech that overlaps remote speech is echo (real
-    /// turn-taking speech happens while the remote is silent).
+    /// Remove "Me" words that are just the remote voice bleeding into the mic
+    /// through the speakers. On a speakerphone the mic captures the remote almost
+    /// continuously, and Whisper turns that residual echo into garbled-but-
+    /// plausible text — so word-matching can't catch it. Instead we suppress by
+    /// TIME, per word: a mic word whose midpoint lands inside remote speech is
+    /// echo. Real turn-taking speech happens while the remote is silent.
     public var echoDedup = true
-    /// A mic ("Me") utterance is treated as echo when at least this fraction of
-    /// its duration overlaps system-track speech. With headphones there's little
-    /// overlap, so little is dropped.
-    public var echoOverlapFraction = 0.6
+    /// Remote speech is bridged across gaps up to this long into one continuous
+    /// interval (Whisper leaves sub-second gaps between words within a breath),
+    /// so echo words that fall in those gaps are still caught.
+    public var echoBridgeGap: TimeInterval = 1.0
+    /// A surviving "Me" utterance this short (in words) that still sits next to
+    /// remote speech is echo residue (a stray word Whisper timed just outside the
+    /// remote words) and is dropped. Genuine short backchannels happen in silence.
+    public var echoRemnantMaxWords = 2
+    /// How close (seconds) such a short utterance must be to remote speech to be
+    /// treated as residue.
+    public var echoRemnantPad: TimeInterval = 0.5
 
     /// Diarization sometimes invents phantom speakers from clustering drift. A
     /// remote speaker whose total talk-time is below this is folded into the

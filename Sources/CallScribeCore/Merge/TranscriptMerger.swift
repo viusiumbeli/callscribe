@@ -14,24 +14,24 @@ public enum TranscriptMerger {
         config: MergeConfig = MergeConfig(),
         detectedLanguage: String? = nil
     ) -> Transcript {
-        let mic = normalize(micWords, config: config)
-            .map { AttributedWord(word: $0, speaker: .me) }
         let normSystem = normalize(systemWords, config: config)
         let system = attribute(systemWords: normSystem, spans: spans, config: config)
-
         // Build utterances per track *before* interleaving, so simultaneous
-        // speech (cross-talk) yields two overlapping utterances instead of
-        // shredding into alternating single words.
-        let micUtterances = utterances(from: mic, config: config)
+        // speech yields two overlapping utterances instead of shredding into
+        // alternating single words.
         let systemUtterances = utterances(from: system, config: config)
 
-        // Strip speaker bleed: drop "Me" utterances that merely echo the remote
-        // voice picked up through the speakers around the same time.
-        let cleanedMic = config.echoDedup
-            ? micUtterances.filter { !isEcho(of: $0, systemWords: normSystem, config: config) }
-            : micUtterances
+        // Strip speaker bleed (the remote picked up through the speakers) at the
+        // WORD level, so a mic utterance that starts as echo but continues after
+        // the remote falls silent keeps its genuine tail. A leftover pass drops
+        // tiny mic fragments still sitting next to remote speech (echo residue).
+        let micUtterances = config.echoDedup
+            ? dedupedMicUtterances(micWords, systemWords: normSystem, config: config)
+            : utterances(
+                from: normalize(micWords, config: config).map { AttributedWord(word: $0, speaker: .me) },
+                config: config)
 
-        let interleaved = (cleanedMic + systemUtterances)
+        let interleaved = (micUtterances + systemUtterances)
             .sorted { a, b in
                 if a.start != b.start { return a.start < b.start }
                 if (a.speaker == .me) != (b.speaker == .me) { return a.speaker == .me }
@@ -49,21 +49,58 @@ public enum TranscriptMerger {
 
     // MARK: - Echo dedup
 
-    /// True when `mic` is the remote voice bleeding through the speakers: it
-    /// overlaps system-track speech for most of its duration. The echo is
-    /// garbled by the time Whisper transcribes it, so we can't match text — but
-    /// genuine "Me" speech happens while the remote is silent, so a mic
-    /// utterance that sits *on top of* remote speech is echo. `systemWords` must
-    /// be sorted by start time.
-    static func isEcho(of mic: Utterance, systemWords: [Word], config: MergeConfig) -> Bool {
-        let micDuration = max(mic.end - mic.start, 0.001)
-        var overlap = 0.0
-        for word in systemWords {
-            if word.start >= mic.end { break }          // sorted → nothing later overlaps
-            let o = min(mic.end, word.end) - max(mic.start, word.start)
-            if o > 0 { overlap += o }
+    /// Mic utterances with speaker bleed removed. Drops mic words whose midpoint
+    /// lands inside remote speech (echo), builds utterances from the survivors,
+    /// then drops tiny fragments still adjacent to remote speech (echo residue
+    /// Whisper timed just outside the remote words). `systemWords` sorted by start.
+    static func dedupedMicUtterances(
+        _ micWords: [Word], systemWords: [Word], config: MergeConfig
+    ) -> [Utterance] {
+        let speech = speechIntervals(systemWords, bridgeGap: config.echoBridgeGap)
+        let kept = normalize(micWords, config: config)
+            .filter { !isEchoWord($0, speech: speech) }
+            .map { AttributedWord(word: $0, speaker: .me) }
+        return utterances(from: kept, config: config)
+            .filter { !isEchoResidue($0, speech: speech, config: config) }
+    }
+
+    /// Merge system words into continuous speech intervals, bridging gaps up to
+    /// `bridgeGap` (Whisper leaves sub-second gaps between words within a breath),
+    /// so echo words landing in those gaps are still caught. `words` sorted by start.
+    static func speechIntervals(_ words: [Word], bridgeGap: TimeInterval) -> [ClosedRange<TimeInterval>] {
+        var result: [ClosedRange<TimeInterval>] = []
+        for word in words where word.end > word.start {
+            if let last = result.last, word.start - last.upperBound <= bridgeGap {
+                result[result.count - 1] = last.lowerBound...max(last.upperBound, word.end)
+            } else {
+                result.append(word.start...word.end)
+            }
         }
-        return min(overlap / micDuration, 1.0) >= config.echoOverlapFraction
+        return result
+    }
+
+    /// A mic word is echo when its midpoint lands inside remote speech.
+    static func isEchoWord(_ word: Word, speech: [ClosedRange<TimeInterval>]) -> Bool {
+        let mid = (word.start + word.end) / 2
+        for range in speech {
+            if range.lowerBound > mid { break }         // sorted → nothing later contains it
+            if range.contains(mid) { return true }
+        }
+        return false
+    }
+
+    /// A very short mic utterance sitting next to remote speech is echo residue.
+    static func isEchoResidue(
+        _ utterance: Utterance, speech: [ClosedRange<TimeInterval>], config: MergeConfig
+    ) -> Bool {
+        guard utterance.words.count <= config.echoRemnantMaxWords else { return false }
+        let lo = utterance.start - config.echoRemnantPad
+        let hi = utterance.end + config.echoRemnantPad
+        for range in speech {
+            if range.lowerBound > hi { break }
+            if range.upperBound >= lo { return true }   // range overlaps [lo, hi]
+        }
+        return false
     }
 
     // MARK: - Stages
