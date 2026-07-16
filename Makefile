@@ -13,16 +13,21 @@ TEST_FLAGS := -Xswiftc -F$(DEVDIR)/Frameworks \
               -Xlinker -rpath -Xlinker $(DEVDIR)/Frameworks \
               -Xlinker -rpath -Xlinker $(DEVDIR)/usr/lib
 
-.PHONY: build app run install test golden cert clean
+.PHONY: build app run install test golden cert clean icon
 
 build:
 	swift build -c release
 
+# Regenerate the app icon (Support/AppIcon.icns) from the native drawing script.
+icon:
+	swift scripts/make-icon.swift
+
 app: build
 	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp .build/release/callscribe $(APP)/Contents/MacOS/callscribe
 	cp Support/Info.plist $(APP)/Contents/Info.plist
+	cp Support/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	find $(APP) -name '*.cstemp' -delete 2>/dev/null || true
 	@test -n "$(IDENTITY_HASH)" || { echo "No 'CallScribe Dev' identity — run 'make cert' first."; exit 1; }
 	codesign --force --sign "$(IDENTITY_HASH)" --keychain "$(KEYCHAIN)" \
