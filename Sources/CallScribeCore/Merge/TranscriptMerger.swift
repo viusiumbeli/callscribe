@@ -16,11 +16,8 @@ public enum TranscriptMerger {
     ) -> Transcript {
         let mic = normalize(micWords, config: config)
             .map { AttributedWord(word: $0, speaker: .me) }
-        let system = attribute(
-            systemWords: normalize(systemWords, config: config),
-            spans: spans,
-            config: config
-        )
+        let normSystem = normalize(systemWords, config: config)
+        let system = attribute(systemWords: normSystem, spans: spans, config: config)
 
         // Build utterances per track *before* interleaving, so simultaneous
         // speech (cross-talk) yields two overlapping utterances instead of
@@ -28,10 +25,10 @@ public enum TranscriptMerger {
         let micUtterances = utterances(from: mic, config: config)
         let systemUtterances = utterances(from: system, config: config)
 
-        // Strip speaker bleed: drop "Me" utterances that merely echo a
-        // system-track utterance at the same time (mic picking up the speakers).
+        // Strip speaker bleed: drop "Me" utterances that merely echo the remote
+        // voice picked up through the speakers around the same time.
         let cleanedMic = config.echoDedup
-            ? micUtterances.filter { !isEcho(of: $0, in: systemUtterances, config: config) }
+            ? micUtterances.filter { !isEcho(of: $0, systemWords: normSystem, config: config) }
             : micUtterances
 
         let interleaved = (cleanedMic + systemUtterances)
@@ -41,39 +38,44 @@ public enum TranscriptMerger {
                 return (a.end - a.start) > (b.end - b.start)
             }
 
-        return Transcript(
-            utterances: coalesce(interleaved, config: config),
-            detectedLanguage: detectedLanguage
-        )
+        // Coalesce, fold away phantom (over-segmented) remote speakers, coalesce
+        // the pieces that folding made adjacent, then renumber 1..k.
+        let coalesced = coalesce(interleaved, config: config)
+        let folded = foldPhantomSpeakers(coalesced, config: config)
+        let final = renumberRemote(coalesce(folded, config: config))
+
+        return Transcript(utterances: final, detectedLanguage: detectedLanguage)
     }
 
     // MARK: - Echo dedup
 
-    /// True when `mic` is the remote voice bleeding through the speakers: it
-    /// overlaps a system utterance in time and repeats its words.
-    static func isEcho(of mic: Utterance, in system: [Utterance], config: MergeConfig) -> Bool {
-        let micDuration = max(mic.end - mic.start, 0.001)
-        return system.contains { sys in
-            let overlap = min(mic.end, sys.end) - max(mic.start, sys.start)
-            guard overlap / micDuration >= config.echoOverlapFraction else { return false }
-            return textSimilarity(mic.text, sys.text) >= config.echoTextSimilarity
+    /// True when `mic` is the remote voice bleeding through the speakers: most
+    /// of its words also appear among the system-track words spoken nearby in
+    /// time. Uses *containment* (mic words found in system), not symmetric
+    /// similarity, so a short garbled mic fragment still matches a long system
+    /// utterance; the time window absorbs the echo's lag and segmentation drift.
+    static func isEcho(of mic: Utterance, systemWords: [Word], config: MergeConfig) -> Bool {
+        let micTokens = wordSet(mic.text)
+        guard micTokens.count >= config.echoMinWords else { return false }
+        let lo = mic.start - config.echoTimeTolerance
+        let hi = mic.end + config.echoTimeTolerance
+        var systemTokens: Set<String> = []
+        for word in systemWords where word.end >= lo && word.start <= hi {
+            systemTokens.formUnion(wordSet(word.text))
         }
+        guard !systemTokens.isEmpty else { return false }   // headphones → no bleed
+        let contained = micTokens.filter { systemTokens.contains($0) }.count
+        return Double(contained) / Double(micTokens.count) >= config.echoContainment
     }
 
-    /// Jaccard similarity over lowercased word sets (punctuation stripped).
-    static func textSimilarity(_ a: String, _ b: String) -> Double {
-        let wordsA = wordSet(a), wordsB = wordSet(b)
-        guard !wordsA.isEmpty, !wordsB.isEmpty else { return 0 }
-        let intersection = wordsA.intersection(wordsB).count
-        let union = wordsA.union(wordsB).count
-        return Double(intersection) / Double(union)
-    }
-
+    /// Content tokens for echo matching: lowercased, punctuation-split, and with
+    /// single-character tokens dropped (short function words like "и"/"a" and
+    /// stray letters are noise that inflates the overlap).
     private static func wordSet(_ text: String) -> Set<String> {
         Set(
             text.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { !$0.isEmpty }
+                .filter { $0.count > 1 }
         )
     }
 
@@ -171,5 +173,62 @@ public enum TranscriptMerger {
             }
         }
         return result
+    }
+
+    // MARK: - Phantom speakers
+
+    /// Diarization over-segments: clustering drift spawns short-lived phantom
+    /// speaker IDs (e.g. a 1 s "Speaker 5"). Fold every remote speaker whose
+    /// total talk-time is below `phantomSpeakerMinDuration` into the nearest
+    /// surviving remote speaker by time — keeping the words, just relabeling.
+    /// Never removes the last surviving remote speaker (a short call stays put).
+    static func foldPhantomSpeakers(_ utterances: [Utterance], config: MergeConfig) -> [Utterance] {
+        guard config.phantomSpeakerMinDuration > 0 else { return utterances }
+
+        var total: [Int: TimeInterval] = [:]
+        for u in utterances {
+            if case .remote(let n) = u.speaker { total[n, default: 0] += u.end - u.start }
+        }
+        let phantoms = Set(total.filter { $0.value < config.phantomSpeakerMinDuration }.keys)
+        let survivors = Set(total.keys).subtracting(phantoms)
+        guard !phantoms.isEmpty, !survivors.isEmpty else { return utterances }
+
+        return utterances.map { u in
+            guard case .remote(let n) = u.speaker, phantoms.contains(n),
+                  let target = nearestSurvivor(to: u, in: utterances, survivors: survivors)
+            else { return u }
+            return Utterance(speaker: .remote(target), words: u.words)
+        }
+    }
+
+    /// The surviving remote speaker whose utterances are closest in time to `u`.
+    private static func nearestSurvivor(
+        to u: Utterance, in all: [Utterance], survivors: Set<Int>
+    ) -> Int? {
+        var best: (speaker: Int, distance: TimeInterval)?
+        for other in all {
+            guard case .remote(let n) = other.speaker, survivors.contains(n) else { continue }
+            let distance = max(0, max(other.start - u.end, u.start - other.end))
+            if best == nil || distance < best!.distance { best = (n, distance) }
+        }
+        return best?.speaker
+    }
+
+    /// Renumber remote speakers 1..k by first appearance, so labels stay
+    /// contiguous after folding (no gaps like "Speaker 1, Speaker 4").
+    static func renumberRemote(_ utterances: [Utterance]) -> [Utterance] {
+        var mapping: [Int: Int] = [:]
+        for u in utterances {
+            if case .remote(let n) = u.speaker, mapping[n] == nil {
+                mapping[n] = mapping.count + 1
+            }
+        }
+        guard mapping.contains(where: { $0.key != $0.value }) else { return utterances }
+        return utterances.map { u in
+            if case .remote(let n) = u.speaker, let m = mapping[n], m != n {
+                return Utterance(speaker: .remote(m), words: u.words)
+            }
+            return u
+        }
     }
 }

@@ -237,6 +237,63 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         #expect(t.utterances.contains { $0.speaker == .me })
         #expect(t.utterances.contains { $0.speaker == .remote(1) })
     }
+
+    @Test func garbledLaggingEchoFragmentIsRemoved() {
+        // The real failure: a short, garbled, time-shifted mic fragment vs. one
+        // long system utterance. Old Jaccard-vs-utterance kept it; containment
+        // against nearby system words drops it.
+        let system = [
+            w("то", 0, 0.9), w("есть", 1, 1.9), w("крупное", 2, 2.9),
+            w("агентство", 3, 3.9), w("которым", 4, 4.9), w("доверие", 5, 5.9),
+            w("оффер", 6, 6.9), w("подключать", 7, 7.9), w("проверенных", 8, 8.9),
+            w("партнеров", 9, 9.9), w("этап", 10, 10.9), w("тестирования", 11, 11.9),
+        ]
+        // Lags the source; 4/5 words echo the system, one ("трафик") is garble.
+        let micEcho = [
+            w("крупное", 3.0, 3.4), w("агентство", 3.5, 3.9), w("доверие", 4.0, 4.4),
+            w("оффер", 4.5, 4.9), w("трафик", 5.0, 5.4),
+        ]
+        let t = TranscriptMerger.merge(micWords: micEcho, systemWords: system, spans: [span("A", 0, 12)])
+        #expect(!t.utterances.contains { $0.speaker == .me }, "echo fragment dropped from Me")
+        #expect(t.utterances.contains { $0.speaker == .remote(1) })
+    }
+
+    @Test func phantomRemoteSpeakerIsFoldedIntoNeighbour() {
+        // Speaker A talks a lot; a 0.5 s "Speaker B" blip is clustering noise.
+        let aFirst = (0..<8).map { w("a\($0)", Double($0) * 1.2, Double($0) * 1.2 + 0.4) }   // 0–8.8 s
+        let bBlip = [w("blip", 10.5, 11.0)]
+        let aLast = (0..<6).map { w("z\($0)", 12 + Double($0) * 1.2, 12 + Double($0) * 1.2 + 0.4) }
+        let t = TranscriptMerger.merge(
+            micWords: [],
+            systemWords: aFirst + bBlip + aLast,
+            spans: [span("A", 0, 9), span("B", 10.4, 11.1), span("A2", 11.9, 20)]
+        )
+        // "A" and "A2" are different diarizer IDs but the blip (B, ~0.5 s) is the
+        // only phantom; it folds into a neighbour, and labels stay contiguous.
+        #expect(!t.utterances.contains { $0.speaker == .remote(3) }, "no phantom third speaker")
+        #expect(t.utterances.allSatisfy { if case .remote = $0.speaker { true } else { false } })
+    }
+
+    @Test func renumberRemoteMakesLabelsContiguous() {
+        let us = [
+            Utterance(speaker: .remote(1), words: [w("a", 0, 0.4)]),
+            Utterance(speaker: .remote(4), words: [w("b", 1, 1.4)]),
+            Utterance(speaker: .remote(4), words: [w("c", 2, 2.4)]),
+            Utterance(speaker: .remote(7), words: [w("d", 3, 3.4)]),
+        ]
+        let r = TranscriptMerger.renumberRemote(us)
+        #expect(r.map(\.speaker) == [.remote(1), .remote(2), .remote(2), .remote(3)])
+    }
+
+    @Test func foldNeverRemovesTheLastRemoteSpeaker() {
+        // Every remote speaker is tiny (short call). Nothing is folded away.
+        let us = [
+            Utterance(speaker: .remote(1), words: [w("a", 0, 0.5)]),
+            Utterance(speaker: .remote(2), words: [w("b", 1, 1.5)]),
+        ]
+        let folded = TranscriptMerger.foldPhantomSpeakers(us, config: MergeConfig())
+        #expect(folded.map(\.speaker) == [.remote(1), .remote(2)])
+    }
 }
 
 @Suite struct RendererTests {

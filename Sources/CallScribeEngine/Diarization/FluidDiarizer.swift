@@ -18,7 +18,18 @@ public enum FluidDiarizer {
             guard samples.count >= 16000 else { return [] }  // < 1 s: nothing to cluster
 
             let models = try await DiarizerModels.downloadIfNeeded(to: modelDirectory)
-            let manager = DiarizerManager()
+            // Defaults (0.7 / 1.0 / 10) over-segment call audio: on a real 29-min
+            // call FluidAudio reported 5 speakers (one real voice split, plus
+            // 1–12 s phantoms). Clustering less eagerly and ignoring short blips
+            // collapsed that to the 2 real voices. 0.75 sits in a stable band
+            // ([0.74, 0.76] all gave 2 here); higher (0.8) over-merged them to 1.
+            // (Merge still folds any sub-3 s survivors.)
+            let config = DiarizerConfig(
+                clusteringThreshold: 0.75,    // was 0.7 — lower = more speakers
+                minSpeechDuration: 1.5,       // was 1.0 — ignore sub-1.5 s blips
+                minActiveFramesCount: 16.0    // was 10.0
+            )
+            let manager = DiarizerManager(config: config)
             manager.initialize(models: models)
 
             let result = try manager.performCompleteDiarization(samples, sampleRate: 16000)

@@ -14,14 +14,25 @@ public struct MergeConfig: Sendable {
     public var minWordProbability: Float = 0.0
 
     /// Remove "Me" utterances that are just the remote voice bleeding into the
-    /// mic through the speakers (they duplicate a system-track utterance at the
-    /// same time). No-op with headphones (no bleed, nothing matches).
+    /// mic through the speakers. A mic utterance is bleed when most of its words
+    /// also appear among the system-track words spoken around the same time.
+    /// No-op with headphones (no bleed, so nothing matches).
     public var echoDedup = true
-    /// A mic utterance is treated as bleed when it overlaps a system utterance
-    /// by at least this fraction of its own duration…
-    public var echoOverlapFraction = 0.5
-    /// …and their texts share at least this fraction of words (Jaccard).
-    public var echoTextSimilarity = 0.6
+    /// Echo lags the source and the tracks segment differently, so a mic
+    /// utterance is matched against system words within this many seconds on
+    /// either side of it.
+    public var echoTimeTolerance: TimeInterval = 2.0
+    /// A mic utterance is bleed when at least this fraction of its (unique) words
+    /// appear among those nearby system words.
+    public var echoContainment = 0.6
+    /// Utterances with fewer words than this are never treated as bleed — keeps
+    /// short genuine backchannels ("да", "okay") that happen to echo a word.
+    public var echoMinWords = 2
+
+    /// Diarization sometimes invents phantom speakers from clustering drift. A
+    /// remote speaker whose total talk-time is below this is folded into the
+    /// nearest surviving speaker (never the last one). 0 disables the fold.
+    public var phantomSpeakerMinDuration: TimeInterval = 3.0
 
     public init() {}
 }
