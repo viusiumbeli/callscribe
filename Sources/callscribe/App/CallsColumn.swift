@@ -49,7 +49,7 @@ struct CallsColumn: View {
             RecordButton(state: state)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .tint(state.isRecording ? Color.red : Color.accentColor)
+                .tint(state.isRecording ? Color.red : Color.brand)
                 .frame(maxWidth: .infinity)
                 .keyboardShortcut("r")
 

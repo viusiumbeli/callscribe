@@ -8,12 +8,14 @@ struct CallScribeApp: App {
         // Primary window — opens automatically at launch (regular app, Dock icon).
         Window("CallScribe", id: "main") {
             MainWindowView(state: state)
+                .tint(.brand)
         }
         .defaultSize(width: 1000, height: 640)
 
         // Tray icon stays for quick control while the window is closed.
         MenuBarExtra {
             MenuBarView(state: state)
+                .tint(.brand)
         } label: {
             Image(systemName: state.isRecording ? "waveform.circle.fill" : "waveform.circle")
         }

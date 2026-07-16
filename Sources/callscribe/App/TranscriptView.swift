@@ -24,7 +24,7 @@ struct TranscriptView: View {
     let player: CallAudioPlayer
 
     /// Colors for non-"Me" speakers, assigned in first-appearance order.
-    private static let palette: [Color] = [.green, .orange, .purple, .pink, .teal, .indigo, .brown]
+    private static let palette: [Color] = [.teal, .orange, .pink, .green, .brown, .cyan, .mint]
 
     var body: some View {
         if turns.isEmpty {
@@ -48,7 +48,7 @@ struct TranscriptView: View {
         var others = 0
         for turn in turns where map[turn.label] == nil {
             if turn.label == "Me" {
-                map[turn.label] = .accentColor
+                map[turn.label] = .brand
             } else {
                 map[turn.label] = Self.palette[others % Self.palette.count]
                 others += 1
