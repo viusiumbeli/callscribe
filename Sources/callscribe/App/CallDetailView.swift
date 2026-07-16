@@ -185,72 +185,94 @@ struct CallDetailView: View {
     }
 
     private var renameControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Picker("Speaker", selection: $selectedLabel) {
-                    ForEach(speakerLabels, id: \.self) { label in
-                        Text(names[label].map { "\(label) → \($0)" } ?? label).tag(label)
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            // Rename the selected speaker.
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                groupLabel("Rename")
+                HStack(spacing: Spacing.sm) {
+                    Picker("", selection: $selectedLabel) {
+                        ForEach(speakerLabels, id: \.self) { label in
+                            Text(names[label].map { "\(label) → \($0)" } ?? label).tag(label)
+                        }
                     }
-                }
-                .frame(width: 220)
-                .onChange(of: selectedLabel) { _, new in renameTo = names[new] ?? "" }
+                    .labelsHidden()
+                    .frame(width: 200)
+                    .onChange(of: selectedLabel) { _, new in renameTo = names[new] ?? "" }
 
-                TextField("Name", text: $renameTo).frame(width: 160)
-                Button("Rename") {
-                    guard !selectedLabel.isEmpty else { return }
-                    run { try await state.rename(selectedLabel, to: renameTo, in: call.folder) }
+                    TextField("Name", text: $renameTo)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+
+                    Button("Rename") {
+                        guard !selectedLabel.isEmpty else { return }
+                        run { try await state.rename(selectedLabel, to: renameTo, in: call.folder) }
+                    }
+                    .buttonStyle(SoftButtonStyle(tint: .brand))
+                    .disabled(busy)
                 }
-                .disabled(busy)
-                .pointerCursor()
             }
 
             // Voice enrollment: learn this speaker's voice so future calls label
             // them by name automatically. Not for "Me" (that's always the mic).
             if selectedLabel != "Me" && selectedLabel != "Participant" && !selectedLabel.isEmpty {
-                HStack(spacing: 8) {
-                    Button {
-                        run { try await state.enrollVoice(label: selectedLabel, name: enrollName, in: call.folder) }
-                    } label: {
-                        Label("Запомнить голос", systemImage: "waveform.badge.plus")
-                    }
-                    .disabled(busy || enrollName.isEmpty)
-                    .help("Learn this speaker's voice to recognise them on future calls")
-                    .pointerCursor()
-
-                    if let enrolled = enrolledNameForSelection {
-                        Button(role: .destructive) {
-                            run { try await state.forgetVoice(name: enrolled, in: call.folder) }
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                    groupLabel("Voice")
+                    HStack(spacing: Spacing.sm) {
+                        Button {
+                            run { try await state.enrollVoice(label: selectedLabel, name: enrollName, in: call.folder) }
                         } label: {
-                            Label("Забыть", systemImage: "waveform.slash")
+                            Label("Remember voice", systemImage: "waveform.badge.plus")
                         }
-                        .disabled(busy)
-                        .help("Forget this learned voice")
-                        .pointerCursor()
-                        Text("голос запомнен").font(.caption).foregroundStyle(.secondary)
+                        .buttonStyle(SoftButtonStyle(tint: .brand))
+                        .disabled(busy || enrollName.isEmpty)
+                        .help("Learn this speaker's voice to recognise them on future calls")
+
+                        if let enrolled = enrolledNameForSelection {
+                            Button {
+                                run { try await state.forgetVoice(name: enrolled, in: call.folder) }
+                            } label: {
+                                Label("Forget", systemImage: "waveform.slash")
+                            }
+                            .buttonStyle(SoftButtonStyle(tint: .red))
+                            .disabled(busy)
+                            .help("Forget this learned voice")
+
+                            Label("voice saved", systemImage: "checkmark.circle.fill")
+                                .font(.caption).foregroundStyle(.green)
+                        }
                     }
                 }
             }
-
-            Divider()
 
             // Force how many remote people to split into when auto-detection
             // merges or over-splits them.
-            HStack(spacing: 8) {
-                Picker("Собеседников на звонке:", selection: $expectedCount) {
-                    Text("Авто").tag(0)
-                    ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                groupLabel("Other speakers")
+                HStack(spacing: Spacing.sm) {
+                    Picker("", selection: $expectedCount) {
+                        Text("Auto").tag(0)
+                        ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 120)
+
+                    Button("Re-detect") {
+                        run { try await state.setExpectedSpeakers(expectedCount == 0 ? nil : expectedCount,
+                                                                  for: call.folder) }
+                    }
+                    .buttonStyle(SoftButtonStyle())
+                    .disabled(busy)
+                    .help("Re-run speaker detection with this number of participants")
                 }
-                .frame(width: 260)
-                Button("Пере-определить") {
-                    run { try await state.setExpectedSpeakers(expectedCount == 0 ? nil : expectedCount,
-                                                              for: call.folder) }
-                }
-                .disabled(busy)
-                .help("Re-run speaker detection with this number of participants")
-                .pointerCursor()
             }
         }
-        .font(.callout)
+    }
+
+    /// Small uppercase caption heading for a sub-group of controls.
+    private func groupLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 
     /// The name to enroll under — what's in the field, else the selected label
