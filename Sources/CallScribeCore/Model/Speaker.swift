@@ -4,6 +4,8 @@ public enum Speaker: Hashable, Codable, Sendable {
     case me
     /// A remote participant identified by diarization, numbered by first appearance.
     case remote(Int)
+    /// A remote participant matched to an enrolled voice — labeled by their name.
+    case named(String)
     /// Fallback when diarization produced no clusters for the system track.
     case participant
 
@@ -12,6 +14,7 @@ public enum Speaker: Hashable, Codable, Sendable {
         switch self {
         case .me: "Me"
         case .remote(let n): "Speaker \(n)"
+        case .named(let name): name
         case .participant: "Participant"
         }
     }

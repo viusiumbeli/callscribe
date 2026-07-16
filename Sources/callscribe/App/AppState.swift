@@ -212,6 +212,35 @@ final class AppState {
         refreshHistory()
     }
 
+    /// Names of all currently-enrolled voices (for the UI to show "forget").
+    func enrolledVoiceNames() -> Set<String> {
+        Set(VoiceStore().load().map(\.name))
+    }
+
+    /// Learn `label`'s voice from this call under `name`, then re-diarize +
+    /// re-merge so it (and future calls) label them by name. Per-call action.
+    func enrollVoice(label: String, name: String, in folder: CallFolder) async throws {
+        let modelsDir = try AppPaths.ensureModelsDirectory()
+        let embedding = try await VoiceEnroller.embedding(
+            forSpeakerLabel: label, in: folder, modelDirectory: modelsDir)
+        try VoiceStore().upsert(VoiceProfile(name: name, embedding: embedding))
+        try await reprocessSpeakers(folder, modelsDir: modelsDir)
+    }
+
+    /// Forget a learned voice, then re-diarize + re-merge this call.
+    func forgetVoice(name: String, in folder: CallFolder) async throws {
+        try VoiceStore().removeVoice(named: name)
+        try await reprocessSpeakers(folder, modelsDir: try AppPaths.ensureModelsDirectory())
+    }
+
+    /// Re-run diarize + merge (transcription is cached, so this is fast-ish).
+    private func reprocessSpeakers(_ folder: CallFolder, modelsDir: URL) async throws {
+        let runner = PipelineRunner(folder: folder, modelsDir: modelsDir, summarizer: nil)
+        _ = try await runner.runStage(.diarize, force: true)
+        _ = try await runner.runStage(.merge, force: true)
+        refreshHistory()
+    }
+
     /// Retry just the summary stage. Per-call action — throws so the detail
     /// view shows a local error rather than the global status.
     func retrySummary(for folder: CallFolder) async throws {

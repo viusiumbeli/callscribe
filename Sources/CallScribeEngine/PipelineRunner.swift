@@ -60,9 +60,11 @@ public actor PipelineRunner {
         }
 
         // 2. Diarize the system track (failure → empty spans, never fatal).
+        //    Enrolled voices let matched speakers come back labeled by name.
         if force || !meta.pipeline.diarized {
             onStage?(.diarize)
-            let spans = await FluidDiarizer.diarize(wav: folder.systemWAV, modelDirectory: modelsDir)
+            let spans = await FluidDiarizer.diarize(
+                wav: folder.systemWAV, modelDirectory: modelsDir, knownVoices: VoiceStore().load())
             try write(spans, to: folder.diarizationJSON)
             meta.pipeline.diarized = true
             try folder.saveMeta(meta)
@@ -114,7 +116,8 @@ public actor PipelineRunner {
             meta.whisperModel = whisperModel
             meta.pipeline.transcribed = true
         case .diarize:
-            let spans = await FluidDiarizer.diarize(wav: folder.systemWAV, modelDirectory: modelsDir)
+            let spans = await FluidDiarizer.diarize(
+                wav: folder.systemWAV, modelDirectory: modelsDir, knownVoices: VoiceStore().load())
             try write(spans, to: folder.diarizationJSON)
             meta.pipeline.diarized = true
         case .merge:

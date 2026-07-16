@@ -324,6 +324,34 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         let folded = TranscriptMerger.foldPhantomSpeakers(us, config: MergeConfig())
         #expect(folded.map(\.speaker) == [.remote(1), .remote(2)])
     }
+
+    @Test func enrolledSpanBecomesNamedSpeakerAndOthersNumbered() {
+        let t = TranscriptMerger.merge(
+            micWords: [],
+            systemWords: [w("привет", 0.1, 0.5), w("здарова", 5.1, 5.5)],
+            spans: [
+                SpeakerSpan(speakerID: "leha", start: 0, end: 2, name: "Лёха"),   // enrolled
+                SpeakerSpan(speakerID: "zzz", start: 5, end: 7),                    // unknown
+            ]
+        )
+        #expect(t.utterances.count == 2)
+        #expect(t.utterances[0].speaker == .named("Лёха"))
+        #expect(t.utterances[0].speaker.label == "Лёха")
+        #expect(t.utterances[1].speaker == .remote(1), "first unnamed speaker numbers from 1")
+    }
+
+    @Test func namedSpeakersAreNeverFoldedOrRenumbered() {
+        // A named speaker with tiny talk-time is identified, not a phantom.
+        let us = [
+            Utterance(speaker: .remote(1), words: [w("a", 0, 5)]),
+            Utterance(speaker: .named("Лёха"), words: [w("b", 6, 6.4)]),   // 0.4s but named
+            Utterance(speaker: .remote(1), words: [w("c", 8, 13)]),
+        ]
+        let folded = TranscriptMerger.foldPhantomSpeakers(us, config: MergeConfig())
+        #expect(folded.contains { $0.speaker == .named("Лёха") })
+        let renumbered = TranscriptMerger.renumberRemote(folded)
+        #expect(renumbered.contains { $0.speaker == .named("Лёха") })
+    }
 }
 
 @Suite struct RendererTests {
@@ -365,12 +393,14 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         let original = Transcript(utterances: [
             Utterance(speaker: .me, words: [w("привет", 2202, 2203)]),
             Utterance(speaker: .remote(1), words: [w("такое", 2197, 2200), w("бывает", 2200, 2270)]),
+            Utterance(speaker: .named("Лёха"), words: [w("ага", 2300, 2301)]),
         ], detectedLanguage: "ru")
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Transcript.self, from: data)
 
         #expect(decoded == original)
+        #expect(decoded.utterances[2].speaker == .named("Лёха"))
         #expect(decoded.utterances[1].speaker.label == "Speaker 1")
         #expect(decoded.utterances[1].start == 2197)
         #expect(decoded.utterances[1].end == 2270)   // real end, not the next turn's start

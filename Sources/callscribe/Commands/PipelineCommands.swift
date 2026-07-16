@@ -77,6 +77,29 @@ struct EchoCancelCommand: AsyncParsableCommand {
     }
 }
 
+struct EnrollCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "enroll",
+        abstract: "Learn a speaker's voice from a call, then re-diarize + re-merge."
+    )
+    @Argument(help: "Path to the call folder.") var folder: String
+    @Argument(help: #"Canonical speaker label, e.g. "Speaker 2"."#) var speaker: String
+    @Argument(help: "The person's name.") var name: String
+
+    func run() async throws {
+        let f = callFolder(folder)
+        let modelsDir = try AppPaths.ensureModelsDirectory()
+        let embedding = try await VoiceEnroller.embedding(
+            forSpeakerLabel: speaker, in: f, modelDirectory: modelsDir)
+        let voices = try VoiceStore().upsert(VoiceProfile(name: name, embedding: embedding))
+        print("Learned \(name) (\(embedding.count)-dim). Library now has \(voices.count) voice(s).")
+        let runner = PipelineRunner(folder: f, modelsDir: modelsDir, summarizer: nil)
+        _ = try await runner.runStage(.diarize, force: true)
+        _ = try await runner.runStage(.merge, force: true)
+        print("Re-diarized + re-merged \(f.url.lastPathComponent).")
+    }
+}
+
 struct MergeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "merge",

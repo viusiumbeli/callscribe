@@ -13,6 +13,7 @@ struct CallDetailView: View {
     @State private var summary = ""
     @State private var names: [String: String] = [:]
     @State private var speakerLabels: [String] = []
+    @State private var enrolledNames: Set<String> = []
     @State private var selectedLabel = ""
     @State private var renameTo = ""
     @State private var player = CallAudioPlayer()
@@ -173,23 +174,69 @@ struct CallDetailView: View {
     }
 
     private var renameControls: some View {
-        HStack {
-            Picker("Speaker", selection: $selectedLabel) {
-                ForEach(speakerLabels, id: \.self) { label in
-                    Text(names[label].map { "\(label) → \($0)" } ?? label).tag(label)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Picker("Speaker", selection: $selectedLabel) {
+                    ForEach(speakerLabels, id: \.self) { label in
+                        Text(names[label].map { "\(label) → \($0)" } ?? label).tag(label)
+                    }
+                }
+                .frame(width: 220)
+                .onChange(of: selectedLabel) { _, new in renameTo = names[new] ?? "" }
+
+                TextField("Name", text: $renameTo).frame(width: 160)
+                Button("Rename") {
+                    guard !selectedLabel.isEmpty else { return }
+                    run { try await state.rename(selectedLabel, to: renameTo, in: call.folder) }
+                }
+                .disabled(busy)
+                .pointerCursor()
+            }
+
+            // Voice enrollment: learn this speaker's voice so future calls label
+            // them by name automatically. Not for "Me" (that's always the mic).
+            if selectedLabel != "Me" && selectedLabel != "Participant" && !selectedLabel.isEmpty {
+                HStack(spacing: 8) {
+                    Button {
+                        run { try await state.enrollVoice(label: selectedLabel, name: enrollName, in: call.folder) }
+                    } label: {
+                        Label("Запомнить голос", systemImage: "waveform.badge.plus")
+                    }
+                    .disabled(busy || enrollName.isEmpty)
+                    .help("Learn this speaker's voice to recognise them on future calls")
+                    .pointerCursor()
+
+                    if let enrolled = enrolledNameForSelection {
+                        Button(role: .destructive) {
+                            run { try await state.forgetVoice(name: enrolled, in: call.folder) }
+                        } label: {
+                            Label("Забыть", systemImage: "waveform.slash")
+                        }
+                        .disabled(busy)
+                        .help("Forget this learned voice")
+                        .pointerCursor()
+                        Text("голос запомнен").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
-            .frame(width: 220)
-            .onChange(of: selectedLabel) { _, new in renameTo = names[new] ?? "" }
-
-            TextField("Name", text: $renameTo).frame(width: 160)
-            Button("Rename") {
-                guard !selectedLabel.isEmpty else { return }
-                run { try await state.rename(selectedLabel, to: renameTo, in: call.folder) }
-            }
-            .disabled(busy)
         }
         .font(.callout)
+    }
+
+    /// The name to enroll under — what's in the field, else the selected label
+    /// itself when it's already a real name (an enrolled `.named` speaker).
+    private var enrollName: String {
+        let typed = renameTo.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty { return typed }
+        return selectedLabel.hasPrefix("Speaker ") ? "" : selectedLabel
+    }
+
+    /// The enrolled voice matching the selected speaker (by its name or label),
+    /// if any — drives the "forget" button.
+    private var enrolledNameForSelection: String? {
+        [names[selectedLabel], selectedLabel]
+            .compactMap { $0 }
+            .first { enrolledNames.contains($0) }
     }
 
     /// Run a per-call async action, showing a local error on failure.
@@ -211,6 +258,7 @@ struct CallDetailView: View {
         transcript = (try? String(contentsOf: call.folder.transcriptMD, encoding: .utf8)) ?? ""
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
         names = (try? call.folder.loadMeta().speakerNames) ?? [:]
+        enrolledNames = state.enrolledVoiceNames()
         turns = Self.loadTurns(folder: call.folder, transcript: transcript, names: names)
         speakerLabels = Self.labels(in: transcript, names: names)
         if !speakerLabels.contains(selectedLabel) { selectedLabel = speakerLabels.first ?? "" }

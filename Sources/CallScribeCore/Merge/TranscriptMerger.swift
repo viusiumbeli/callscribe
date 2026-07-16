@@ -111,11 +111,12 @@ public enum TranscriptMerger {
             .sorted { ($0.start, $0.end) < ($1.start, $1.end) }
     }
 
-    /// Attribute system-track words to `.remote(N)` speakers via diarization
-    /// spans. Speakers are numbered by first appearance in time. A word picks
-    /// the span with maximum temporal overlap; words outside every span snap
-    /// to the nearest span within tolerance, else stick with the previous
-    /// word's speaker. No spans at all → everything is `.participant`.
+    /// Attribute system-track words to speakers via diarization spans. A span
+    /// matched to an enrolled voice becomes `.named`; the rest are `.remote(N)`,
+    /// numbered by first appearance in time. A word picks the span with maximum
+    /// temporal overlap; words outside every span snap to the nearest span
+    /// within tolerance, else stick with the previous word's speaker. No spans
+    /// at all → everything is `.participant`.
     static func attribute(
         systemWords: [Word],
         spans: [SpeakerSpan],
@@ -127,10 +128,13 @@ public enum TranscriptMerger {
 
         let sortedSpans = spans.sorted { ($0.start, $0.end) < ($1.start, $1.end) }
         var numbering: [String: Int] = [:]
-        for span in sortedSpans where numbering[span.speakerID] == nil {
+        for span in sortedSpans where span.name == nil && numbering[span.speakerID] == nil {
             numbering[span.speakerID] = numbering.count + 1
         }
-        func speaker(of span: SpeakerSpan) -> Speaker { .remote(numbering[span.speakerID]!) }
+        func speaker(of span: SpeakerSpan) -> Speaker {
+            if let name = span.name { return .named(name) }
+            return .remote(numbering[span.speakerID] ?? 1)
+        }
 
         var result: [AttributedWord] = []
         var previous: Speaker = speaker(of: sortedSpans[0])

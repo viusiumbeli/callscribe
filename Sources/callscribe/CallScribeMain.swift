@@ -32,6 +32,7 @@ struct CallScribeCLI: AsyncParsableCommand {
             EchoCancelCommand.self,
             TranscribeCommand.self,
             DiarizeCommand.self,
+            EnrollCommand.self,
             MergeCommand.self,
             SummarizeCommand.self,
             PipelineCommand.self,
