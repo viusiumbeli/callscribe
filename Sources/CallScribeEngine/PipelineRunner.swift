@@ -150,6 +150,9 @@ public actor PipelineRunner {
         )
         let markdown = TranscriptMarkdownRenderer.render(transcript, names: names)
         try markdown.write(to: folder.transcriptMD, atomically: true, encoding: .utf8)
+        // Structured sidecar with real per-utterance times for the UI highlight.
+        // Name-independent (canonical speaker labels); names are applied on display.
+        try write(transcript, to: folder.turnsJSON)
     }
 
     /// The mic signal to transcribe: the echo-cancelled track when present,

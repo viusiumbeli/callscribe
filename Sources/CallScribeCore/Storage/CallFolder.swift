@@ -24,6 +24,10 @@ public struct CallFolder: Sendable, Hashable {
     public var whisperMicJSON: URL { cacheDir.appendingPathComponent("whisper-mic.json") }
     public var whisperSystemJSON: URL { cacheDir.appendingPathComponent("whisper-system.json") }
     public var diarizationJSON: URL { cacheDir.appendingPathComponent("diarization.json") }
+    /// Structured merged transcript (utterances with real start/end times) for
+    /// the UI — lets playback highlight track overlapping speech precisely,
+    /// which the start-only `transcript.md` can't express.
+    public var turnsJSON: URL { cacheDir.appendingPathComponent("turns.json") }
 
     public func loadMeta() throws -> CallMeta {
         try CallMeta.load(from: metaJSON)

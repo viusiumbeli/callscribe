@@ -1,137 +1,109 @@
 import CallScribeCore
 import SwiftUI
 
+/// One utterance ready to render: real `[start, end]` times (so playback
+/// highlight can track overlapping speech), a canonical speaker label
+/// ("Me"/"Speaker 1"), and the text.
+struct Turn: Identifiable {
+    let id: Int
+    let start: TimeInterval
+    let end: TimeInterval
+    let label: String
+    let text: String
+}
+
 /// The transcript rendered as chat bubbles: "Me" on the right (accent tint),
 /// other speakers on the left, each speaker color-coded. Every timecode is
-/// clickable and seeks the audio player to that moment; the turn currently
-/// playing is highlighted so the text follows the audio.
-///
-/// Rows are parsed and styled once (on transcript change) into `@State`, and
-/// rendered with a `LazyVStack` so only on-screen bubbles are built — a big
-/// transcript (hundreds of selectable-text bubbles) would otherwise take
-/// seconds to materialize on first open.
+/// clickable and seeks the audio player; a turn is highlighted whenever the
+/// playhead is within its real time range — so a long monologue stays lit for
+/// its whole duration and a short interjection nested inside it lights only when
+/// it actually occurs (both can be lit at once during overlap).
 struct TranscriptView: View {
-    let transcript: String
+    let turns: [Turn]
     let names: [String: String]
     let player: CallAudioPlayer
 
     /// Colors for non-"Me" speakers, assigned in first-appearance order.
     private static let palette: [Color] = [.green, .orange, .purple, .pink, .teal, .indigo, .brown]
 
-    /// A bubble's fully-precomputed data, so `body` does no parsing/coloring.
-    private struct Row: Identifiable {
-        let id: Int
-        let start: TimeInterval
-        let end: TimeInterval   // next turn's start; last = .greatestFiniteMagnitude
-        let label: String
-        let text: String
-        let color: Color
-        let isMe: Bool
-    }
-
-    @State private var rows: [Row] = []
-
     var body: some View {
-        Group {
-            if rows.isEmpty {
-                Text("No transcript.").foregroundStyle(.secondary)
-            } else {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(rows) { row in
-                        let active = player.isPlaying
-                            && player.currentTime >= row.start
-                            && player.currentTime < max(row.end, row.start + 0.1)
-                        bubble(row, active: active)
-                    }
+        if turns.isEmpty {
+            Text("No transcript.").foregroundStyle(.secondary)
+        } else {
+            let colors = colorMap(turns)
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(turns) { turn in
+                    let active = player.isPlaying
+                        && player.currentTime >= turn.start
+                        && player.currentTime <= turn.end
+                    bubble(turn, color: colors[turn.label] ?? .gray, isMe: turn.label == "Me", active: active)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onChange(of: transcript, initial: true) { _, _ in rebuild() }
-        .onChange(of: names) { _, _ in rebuild() }
     }
 
-    /// Parse + color the transcript once. A displayed label may be a renamed
-    /// name; map it back to its canonical form ("Speaker 1", "Me") so colors
-    /// stay stable, then assign colors in first-appearance order.
-    private func rebuild() {
-        let turns = TranscriptParse.parse(transcript)
-        let reverse = Dictionary(names.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
-
-        var colors: [String: Color] = [:]
+    private func colorMap(_ turns: [Turn]) -> [String: Color] {
+        var map: [String: Color] = [:]
         var others = 0
-        for turn in turns {
-            let canonical = reverse[turn.label] ?? turn.label
-            guard colors[canonical] == nil else { continue }
-            if canonical == "Me" {
-                colors[canonical] = .accentColor
+        for turn in turns where map[turn.label] == nil {
+            if turn.label == "Me" {
+                map[turn.label] = .accentColor
             } else {
-                colors[canonical] = Self.palette[others % Self.palette.count]
+                map[turn.label] = Self.palette[others % Self.palette.count]
                 others += 1
             }
         }
-
-        rows = turns.enumerated().map { index, turn in
-            let canonical = reverse[turn.label] ?? turn.label
-            let end = index + 1 < turns.count ? turns[index + 1].start : .greatestFiniteMagnitude
-            return Row(
-                id: index,
-                start: turn.start,
-                end: end,
-                label: turn.label,
-                text: turn.text,
-                color: colors[canonical] ?? .gray,
-                isMe: canonical == "Me"
-            )
-        }
+        return map
     }
 
     @ViewBuilder
-    private func bubble(_ row: Row, active: Bool) -> some View {
+    private func bubble(_ turn: Turn, color: Color, isMe: Bool, active: Bool) -> some View {
         HStack(spacing: 0) {
-            if row.isMe { Spacer(minLength: 40) }
-            VStack(alignment: row.isMe ? .trailing : .leading, spacing: 4) {
+            if isMe { Spacer(minLength: 40) }
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    timecode(row)
-                    Text(row.label).font(.caption.weight(.semibold)).foregroundStyle(row.color)
+                    timecode(turn, color: color)
+                    Text(names[turn.label] ?? turn.label)
+                        .font(.caption.weight(.semibold)).foregroundStyle(color)
                 }
-                Text(row.text)
+                Text(turn.text)
                     .textSelection(.enabled)
-                    .multilineTextAlignment(row.isMe ? .trailing : .leading)
+                    .multilineTextAlignment(isMe ? .trailing : .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(row.color.opacity(active ? 0.28 : 0.13))
+                    .fill(color.opacity(active ? 0.28 : 0.13))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(row.color.opacity(active ? 0.9 : 0), lineWidth: 1.5)
+                    .strokeBorder(color.opacity(active ? 0.9 : 0), lineWidth: 1.5)
             )
-            .frame(maxWidth: 480, alignment: row.isMe ? .trailing : .leading)
-            if !row.isMe { Spacer(minLength: 40) }
+            .frame(maxWidth: 480, alignment: isMe ? .trailing : .leading)
+            if !isMe { Spacer(minLength: 40) }
         }
     }
 
     /// Clickable timecode that seeks playback to this turn. Falls back to plain
     /// text when there's no audio to seek.
     @ViewBuilder
-    private func timecode(_ row: Row) -> some View {
+    private func timecode(_ turn: Turn, color: Color) -> some View {
         if player.isReady {
             Button {
-                player.seek(to: row.start)
+                player.seek(to: turn.start)
                 player.play()
             } label: {
-                Text(CallAudioPlayer.clock(row.start)).font(.caption2.monospacedDigit())
+                Text(CallAudioPlayer.clock(turn.start)).font(.caption2.monospacedDigit())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(row.color)
+            .foregroundStyle(color)
             .help("Jump to this point in the audio")
             .pointerCursor()
         } else {
-            Text(CallAudioPlayer.clock(row.start))
+            Text(CallAudioPlayer.clock(turn.start))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }

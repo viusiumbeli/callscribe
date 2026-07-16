@@ -319,3 +319,27 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         #expect(TranscriptMarkdownRenderer.render(Transcript(utterances: [])) == "")
     }
 }
+
+@Suite struct TranscriptSidecarTests {
+    private func w(_ text: String, _ start: Double, _ end: Double) -> Word {
+        Word(text: text, start: start, end: end, probability: 1)
+    }
+
+    @Test func transcriptRoundTripsThroughJSON() throws {
+        // The UI highlight relies on the turns.json sidecar preserving each
+        // utterance's real start/end/speaker/text.
+        let original = Transcript(utterances: [
+            Utterance(speaker: .me, words: [w("привет", 2202, 2203)]),
+            Utterance(speaker: .remote(1), words: [w("такое", 2197, 2200), w("бывает", 2200, 2270)]),
+        ], detectedLanguage: "ru")
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(Transcript.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.utterances[1].speaker.label == "Speaker 1")
+        #expect(decoded.utterances[1].start == 2197)
+        #expect(decoded.utterances[1].end == 2270)   // real end, not the next turn's start
+        #expect(decoded.utterances[0].text == "привет")
+    }
+}

@@ -9,6 +9,7 @@ struct CallDetailView: View {
     var onDeleted: () -> Void = {}
 
     @State private var transcript = ""
+    @State private var turns: [Turn] = []
     @State private var summary = ""
     @State private var names: [String: String] = [:]
     @State private var speakerLabels: [String] = []
@@ -59,7 +60,7 @@ struct CallDetailView: View {
                 }
 
                 SectionCard(title: "Transcript", systemImage: "text.quote", isExpanded: $showTranscript) {
-                    TranscriptView(transcript: transcript, names: names, player: player)
+                    TranscriptView(turns: turns, names: names, player: player)
                 }
             }
             .padding()
@@ -210,10 +211,36 @@ struct CallDetailView: View {
         transcript = (try? String(contentsOf: call.folder.transcriptMD, encoding: .utf8)) ?? ""
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
         names = (try? call.folder.loadMeta().speakerNames) ?? [:]
+        turns = Self.loadTurns(folder: call.folder, transcript: transcript, names: names)
         speakerLabels = Self.labels(in: transcript, names: names)
         if !speakerLabels.contains(selectedLabel) { selectedLabel = speakerLabels.first ?? "" }
         renameTo = names[selectedLabel] ?? ""
         player.load(call.folder)
+    }
+
+    /// Build the turns the transcript view renders. Prefer the structured
+    /// sidecar (real per-utterance start/end times → precise highlight of
+    /// overlapping speech); fall back to parsing `transcript.md` for calls not
+    /// re-merged since the sidecar was introduced, estimating each end from a
+    /// speaking rate so nested overlaps still highlight sanely.
+    static func loadTurns(folder: CallFolder, transcript: String, names: [String: String]) -> [Turn] {
+        if let data = try? Data(contentsOf: folder.turnsJSON),
+           let t = try? JSONDecoder().decode(Transcript.self, from: data) {
+            return t.utterances.enumerated().map { i, u in
+                Turn(id: i, start: u.start, end: u.end, label: u.speaker.label, text: u.text)
+            }
+        }
+        let reverse = Dictionary(names.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+        return TranscriptParse.parse(transcript).enumerated().map { i, p in
+            let words = p.text.split(separator: " ").count
+            return Turn(
+                id: i,
+                start: p.start,
+                end: p.start + max(0.8, Double(words) * 0.4),
+                label: reverse[p.label] ?? p.label,
+                text: p.text
+            )
+        }
     }
 
     /// Canonical speaker labels present in the transcript ("Me", "Speaker 1",
