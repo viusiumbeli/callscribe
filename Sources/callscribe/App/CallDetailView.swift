@@ -27,7 +27,7 @@ struct CallDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Spacing.xl) {
                 actions
 
                 if busy {
@@ -65,7 +65,7 @@ struct CallDetailView: View {
                     TranscriptView(turns: turns, names: names, player: player)
                 }
             }
-            .padding()
+            .padding(Spacing.xl)
         }
         .onChange(of: call.id, initial: true) { _, _ in load() }
         .onDisappear { player.teardown() }
@@ -94,9 +94,12 @@ struct CallDetailView: View {
                     player.togglePlayPause()
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .frame(width: 20)
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(LinearGradient.brand, in: Circle())
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .pointerCursor()
 
                 Text(CallAudioPlayer.clock(player.currentTime))
@@ -136,19 +139,25 @@ struct CallDetailView: View {
     // MARK: - Actions
 
     private var actions: some View {
-        HStack {
-            Button("Copy Transcript") {
+        HStack(spacing: Spacing.sm) {
+            Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(transcript, forType: .string)
+            } label: {
+                Label("Copy Transcript", systemImage: "doc.on.doc")
             }
+            .buttonStyle(SoftButtonStyle())
             .disabled(transcript.isEmpty)
             .pointerCursor()
 
             // Always available: create the summary if missing, or regenerate
             // it (e.g. to get a title / speaker names) when it already exists.
-            Button(summary.isEmpty ? "Retry Summary" : "Regenerate Summary") {
+            Button {
                 run { try await state.retrySummary(for: call.folder) }
+            } label: {
+                Label(summary.isEmpty ? "Retry Summary" : "Regenerate Summary", systemImage: "sparkles")
             }
+            .buttonStyle(SoftButtonStyle(tint: .brand))
             .disabled(busy || transcript.isEmpty)
             .pointerCursor()
 
@@ -160,15 +169,16 @@ struct CallDetailView: View {
             } label: {
                 Label("Open Folder", systemImage: "folder")
             }
+            .buttonStyle(SoftButtonStyle())
             .help("Open this call's folder in Finder")
             .pointerCursor()
 
-            Button(role: .destructive) {
+            Button {
                 confirmingDelete = true
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-            .tint(.red)
+            .buttonStyle(SoftButtonStyle(tint: .red))
             .help("Delete this recording and all of its files")
             .pointerCursor()
         }

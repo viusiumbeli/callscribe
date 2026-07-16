@@ -11,7 +11,6 @@ struct CallsColumn: View {
     var body: some View {
         VStack(spacing: 0) {
             recordHeader
-            Divider()
             List(selection: $selection) {
                 ForEach(daySections) { section in
                     Section(section.title) {
@@ -25,6 +24,8 @@ struct CallsColumn: View {
                     }
                 }
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
         }
         .confirmationDialog(
             "Delete this recording?",
@@ -45,11 +46,11 @@ struct CallsColumn: View {
 
     /// Prominent recording control pinned above the call list.
     private var recordHeader: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.sm) {
             RecordButton(state: state)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(state.isRecording ? Color.red : Color.brand)
+                .buttonStyle(BrandButtonStyle(
+                    fill: state.isRecording ? AnyShapeStyle(Color.red) : AnyShapeStyle(LinearGradient.brand),
+                    glow: state.isRecording ? .red : .brand))
                 .frame(maxWidth: .infinity)
                 .keyboardShortcut("r")
 
@@ -57,17 +58,19 @@ struct CallsColumn: View {
                 RecordStatusChip(phase: state.phase)
             }
         }
-        .padding(12)
+        .padding(Spacing.lg)
     }
 
     private func callRow(_ call: AppState.CallSummary) -> some View {
         let sub = CallFormatting.subtitle(call)
-        return VStack(alignment: .leading, spacing: 2) {
-            Text(call.title ?? CallFormatting.time(call)).font(.body).lineLimit(2)
+        return VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text(call.title ?? CallFormatting.time(call))
+                .font(.body.weight(.medium)).lineLimit(2)
             if !sub.isEmpty {
                 Text(sub).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, Spacing.xs)
     }
 
     /// Calls grouped into day sections (newest first), preserving order.

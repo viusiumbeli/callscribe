@@ -1,9 +1,8 @@
-import AppKit
 import SwiftUI
 
-/// A titled, collapsible card: an icon + title header, a divider, and padded
-/// content, wrapped in a bordered rounded background so each section reads as a
-/// distinct block instead of blending with its neighbours.
+/// A titled, collapsible card: a branded icon chip + title header, and padded
+/// content, on a floating translucent surface (material + soft shadow) so each
+/// section reads as a distinct, elevated block.
 struct SectionCard<Content: View>: View {
     let title: String
     let systemImage: String
@@ -16,10 +15,12 @@ struct SectionCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             // The whole padded header row toggles; the copy button (a real
             // Button) still intercepts its own clicks.
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.md) {
                 Image(systemName: systemImage)
-                    .foregroundStyle(.tint)
-                    .frame(width: 18)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(LinearGradient.brand, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 Text(title).font(.headline)
                 Spacer(minLength: 0)
 
@@ -35,11 +36,11 @@ struct SectionCard<Content: View>: View {
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.md)
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
@@ -47,18 +48,18 @@ struct SectionCard<Content: View>: View {
             .pointerCursor()
 
             if isExpanded {
-                Divider()
+                Divider().opacity(0.5)
                 content()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
+                    .padding(Spacing.lg)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor))
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.white.opacity(0.06), lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
     }
 }
 

@@ -57,7 +57,12 @@ struct MainWindowView: View {
                 }
             }
         }
-        .onChange(of: state.selectedProjectID) { selectedCallID = nil }
+        // Open to the newest call; keep the current one if it's still in the
+        // list, otherwise (launch, project switch, delete) select the first.
+        .onChange(of: state.calls.map(\.id), initial: true) { _, ids in
+            if let sel = selectedCallID, ids.contains(sel) { return }
+            selectedCallID = ids.first
+        }
         .sheet(isPresented: $showNewProject) {
             NewProjectSheet { name, parent in
                 state.addProject(name: name, parentURL: parent)
