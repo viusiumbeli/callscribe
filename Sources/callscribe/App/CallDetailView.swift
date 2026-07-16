@@ -14,6 +14,7 @@ struct CallDetailView: View {
     @State private var names: [String: String] = [:]
     @State private var speakerLabels: [String] = []
     @State private var enrolledNames: Set<String> = []
+    @State private var expectedCount = 0   // 0 = Auto, else number of remote speakers
     @State private var selectedLabel = ""
     @State private var renameTo = ""
     @State private var player = CallAudioPlayer()
@@ -219,6 +220,25 @@ struct CallDetailView: View {
                     }
                 }
             }
+
+            Divider()
+
+            // Force how many remote people to split into when auto-detection
+            // merges or over-splits them.
+            HStack(spacing: 8) {
+                Picker("Собеседников на звонке:", selection: $expectedCount) {
+                    Text("Авто").tag(0)
+                    ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .frame(width: 260)
+                Button("Пере-определить") {
+                    run { try await state.setExpectedSpeakers(expectedCount == 0 ? nil : expectedCount,
+                                                              for: call.folder) }
+                }
+                .disabled(busy)
+                .help("Re-run speaker detection with this number of participants")
+                .pointerCursor()
+            }
         }
         .font(.callout)
     }
@@ -259,6 +279,7 @@ struct CallDetailView: View {
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
         names = (try? call.folder.loadMeta().speakerNames) ?? [:]
         enrolledNames = state.enrolledVoiceNames()
+        expectedCount = state.expectedSpeakers(for: call.folder) ?? 0
         turns = Self.loadTurns(folder: call.folder, transcript: transcript, names: names)
         speakerLabels = Self.labels(in: transcript, names: names)
         if !speakerLabels.contains(selectedLabel) { selectedLabel = speakerLabels.first ?? "" }

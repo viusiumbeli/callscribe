@@ -31,6 +31,9 @@ public struct CallMeta: Codable, Sendable, Equatable {
     public var title: String?
     /// Whisper language override ("ru"/"en"); nil = auto-detect.
     public var language: String?
+    /// How many remote participants to split the system track into; nil = auto.
+    /// The mic/"Me" track is separate and never diarized, so this counts others.
+    public var expectedSpeakers: Int?
     /// Detected language of the call, filled in after transcription.
     public var detectedLanguage: String?
     /// Debug: gap between session start and each track's first audio buffer

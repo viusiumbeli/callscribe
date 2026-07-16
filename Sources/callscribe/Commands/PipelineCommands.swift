@@ -55,9 +55,16 @@ struct DiarizeCommand: AsyncParsableCommand {
     )
     @Argument(help: "Path to the call folder.") var folder: String
     @Flag(help: "Re-diarize even if cached.") var force = false
+    @Option(help: "Force this many remote speakers (persisted; omit for auto).") var speakers: Int?
 
     func run() async throws {
-        let runner = try makeRunner(callFolder(folder), withSummarizer: false)
+        let f = callFolder(folder)
+        if let speakers {
+            var meta = try f.loadMeta()
+            meta.expectedSpeakers = speakers
+            try f.saveMeta(meta)
+        }
+        let runner = try makeRunner(f, withSummarizer: false)
         _ = try await runner.runStage(.diarize, force: force)
         print("Diarized.")
     }

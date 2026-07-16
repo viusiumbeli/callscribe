@@ -12,36 +12,40 @@ public enum FluidDiarizer {
         wav url: URL,
         modelDirectory: URL,
         knownVoices: [VoiceProfile] = [],
+        expectedSpeakers: Int? = nil,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async -> [SpeakerSpan] {
         do {
-            let samples = try AudioFileLoader.loadMono16k(url)
-            guard samples.count >= 16000 else { return [] }  // < 1 s: nothing to cluster
-
-            let models = try await DiarizerModels.downloadIfNeeded(to: modelDirectory)
-            // Defaults (0.7 / 1.0 / 10) over-segment call audio: on a real 29-min
-            // call FluidAudio reported 5 speakers (one real voice split, plus
-            // 1–12 s phantoms). Clustering less eagerly and ignoring short blips
-            // collapsed that to the 2 real voices. 0.75 sits in a stable band
-            // ([0.74, 0.76] all gave 2 here); higher (0.8) over-merged them to 1.
-            // (Merge still folds any sub-3 s survivors.)
-            let config = DiarizerConfig(
-                clusteringThreshold: 0.75,    // was 0.7 — lower = more speakers
-                minSpeechDuration: 1.5,       // was 1.0 — ignore sub-1.5 s blips
-                minActiveFramesCount: 16.0    // was 10.0
-            )
-            let manager = DiarizerManager(config: config)
-            manager.initialize(models: models)
-
-            let result = try manager.performCompleteDiarization(samples, sampleRate: 16000)
+            let segments: [TimedSpeakerSegment]
+            if let expectedSpeakers, expectedSpeakers > 0 {
+                // The user fixed the count: the OFFLINE (VBx/PLDA) diarizer is the
+                // only path whose clustering honours an exact speaker count — the
+                // streaming one ignores it. Reuses the same on-disk models.
+                var config = OfflineDiarizerConfig()
+                config.clustering.numSpeakers = expectedSpeakers
+                let manager = OfflineDiarizerManager(config: config)
+                try await manager.prepareModels(directory: modelDirectory)
+                segments = try await manager.process(url).segments
+            } else {
+                // Automatic mode: streaming diarizer, tuned to avoid phantom
+                // speakers (offline auto tends to over-merge on these calls).
+                let samples = try AudioFileLoader.loadMono16k(url)
+                guard samples.count >= 16000 else { return [] }
+                let models = try await DiarizerModels.downloadIfNeeded(to: modelDirectory)
+                let config = DiarizerConfig(
+                    clusteringThreshold: 0.75, minSpeechDuration: 1.5, minActiveFramesCount: 16.0)
+                let manager = DiarizerManager(config: config)
+                manager.initialize(models: models)
+                segments = try manager.performCompleteDiarization(samples, sampleRate: 16000).segments
+            }
 
             // Match enrolled voices at the SPEAKER level (not FluidAudio's loose
             // per-segment matching, which over-matches similar voices): average
             // each diarized speaker's segment embeddings and, only if the nearest
             // enrolled voice is within a strict cosine distance, label them.
-            let nameBySpeaker = matchVoices(result.segments, to: knownVoices)
+            let nameBySpeaker = matchVoices(segments, to: knownVoices)
 
-            return result.segments.map {
+            return segments.map {
                 SpeakerSpan(
                     speakerID: $0.speakerId,
                     start: TimeInterval($0.startTimeSeconds),

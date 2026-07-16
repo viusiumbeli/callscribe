@@ -217,6 +217,20 @@ final class AppState {
         Set(VoiceStore().load().map(\.name))
     }
 
+    /// The saved "number of remote participants" hint for a call (nil = auto).
+    func expectedSpeakers(for folder: CallFolder) -> Int? {
+        (try? folder.loadMeta())?.expectedSpeakers
+    }
+
+    /// Fix how many remote speakers to split into, then re-diarize + re-merge.
+    /// Per-call action — throws so the detail view shows a local error.
+    func setExpectedSpeakers(_ count: Int?, for folder: CallFolder) async throws {
+        var meta = try folder.loadMeta()
+        meta.expectedSpeakers = count
+        try folder.saveMeta(meta)
+        try await reprocessSpeakers(folder, modelsDir: try AppPaths.ensureModelsDirectory())
+    }
+
     /// Learn `label`'s voice from this call under `name`, then re-diarize +
     /// re-merge so it (and future calls) label them by name. Per-call action.
     func enrollVoice(label: String, name: String, in folder: CallFolder) async throws {

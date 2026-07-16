@@ -64,7 +64,8 @@ public actor PipelineRunner {
         if force || !meta.pipeline.diarized {
             onStage?(.diarize)
             let spans = await FluidDiarizer.diarize(
-                wav: folder.systemWAV, modelDirectory: modelsDir, knownVoices: VoiceStore().load())
+                wav: folder.systemWAV, modelDirectory: modelsDir,
+                knownVoices: VoiceStore().load(), expectedSpeakers: meta.expectedSpeakers)
             try write(spans, to: folder.diarizationJSON)
             meta.pipeline.diarized = true
             try folder.saveMeta(meta)
@@ -117,7 +118,8 @@ public actor PipelineRunner {
             meta.pipeline.transcribed = true
         case .diarize:
             let spans = await FluidDiarizer.diarize(
-                wav: folder.systemWAV, modelDirectory: modelsDir, knownVoices: VoiceStore().load())
+                wav: folder.systemWAV, modelDirectory: modelsDir,
+                knownVoices: VoiceStore().load(), expectedSpeakers: meta.expectedSpeakers)
             try write(spans, to: folder.diarizationJSON)
             meta.pipeline.diarized = true
         case .merge:
@@ -145,10 +147,15 @@ public actor PipelineRunner {
         let mic: TrackTranscription = try read(folder.whisperMicJSON)
         let system: TrackTranscription = try read(folder.whisperSystemJSON)
         let spans: [SpeakerSpan] = (try? read(folder.diarizationJSON)) ?? []
+        // When the user fixed the speaker count, trust it — don't fold a forced
+        // cluster away as a phantom.
+        var config = MergeConfig()
+        if (try? folder.loadMeta())?.expectedSpeakers != nil { config.phantomSpeakerMinDuration = 0 }
         let transcript = TranscriptMerger.merge(
             micWords: mic.words,
             systemWords: system.words,
             spans: spans,
+            config: config,
             detectedLanguage: mic.detectedLanguage ?? system.detectedLanguage
         )
         let markdown = TranscriptMarkdownRenderer.render(transcript, names: names)
