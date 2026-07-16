@@ -14,20 +14,16 @@ public struct MergeConfig: Sendable {
     public var minWordProbability: Float = 0.0
 
     /// Remove "Me" utterances that are just the remote voice bleeding into the
-    /// mic through the speakers. A mic utterance is bleed when most of its words
-    /// also appear among the system-track words spoken around the same time.
-    /// No-op with headphones (no bleed, so nothing matches).
+    /// mic through the speakers. On a speakerphone the mic captures the remote
+    /// almost continuously, and Whisper turns that residual echo into
+    /// garbled-but-plausible text — so word-matching can't catch it. Instead we
+    /// suppress by TIME: mic speech that overlaps remote speech is echo (real
+    /// turn-taking speech happens while the remote is silent).
     public var echoDedup = true
-    /// Echo lags the source and the tracks segment differently, so a mic
-    /// utterance is matched against system words within this many seconds on
-    /// either side of it.
-    public var echoTimeTolerance: TimeInterval = 2.0
-    /// A mic utterance is bleed when at least this fraction of its (unique) words
-    /// appear among those nearby system words.
-    public var echoContainment = 0.6
-    /// Utterances with fewer words than this are never treated as bleed — keeps
-    /// short genuine backchannels ("да", "okay") that happen to echo a word.
-    public var echoMinWords = 2
+    /// A mic ("Me") utterance is treated as echo when at least this fraction of
+    /// its duration overlaps system-track speech. With headphones there's little
+    /// overlap, so little is dropped.
+    public var echoOverlapFraction = 0.6
 
     /// Diarization sometimes invents phantom speakers from clustering drift. A
     /// remote speaker whose total talk-time is below this is folded into the

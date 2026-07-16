@@ -113,19 +113,16 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
         #expect(t.utterances[0].words.count == 20)
     }
 
-    @Test func crossTalkKeepsBothUtterancesOrderedByStart() {
-        // Me and Speaker 1 talk simultaneously; both survive as whole
-        // utterances, mic first on equal start.
+    @Test func micOnTopOfSystemSpeechIsDroppedAsEcho() {
+        // Mic speech that sits on top of remote speech is echo (the remote
+        // picked up through the speakers), not genuine cross-talk — dropped.
         let t = TranscriptMerger.merge(
             micWords: [w("me-a", 1.0, 1.4), w("me-b", 1.5, 1.9)],
             systemWords: [w("them-a", 1.0, 1.4), w("them-b", 1.5, 1.9)],
             spans: [span("A", 0, 3)]
         )
-        #expect(t.utterances.count == 2)
-        #expect(t.utterances[0].speaker == .me)
-        #expect(t.utterances[1].speaker == .remote(1))
-        #expect(t.utterances[0].words.count == 2)
-        #expect(t.utterances[1].words.count == 2)
+        #expect(t.utterances.count == 1)
+        #expect(t.utterances[0].speaker == .remote(1))
     }
 
     @Test func unsortedInputIsHandled() {
@@ -239,9 +236,8 @@ private func span(_ id: String, _ start: Double, _ end: Double) -> SpeakerSpan {
     }
 
     @Test func garbledLaggingEchoFragmentIsRemoved() {
-        // The real failure: a short, garbled, time-shifted mic fragment vs. one
-        // long system utterance. Old Jaccard-vs-utterance kept it; containment
-        // against nearby system words drops it.
+        // A garbled mic fragment sitting on top of a long system utterance is
+        // echo. Text-matching can't catch garble, but the time overlap does.
         let system = [
             w("то", 0, 0.9), w("есть", 1, 1.9), w("крупное", 2, 2.9),
             w("агентство", 3, 3.9), w("которым", 4, 4.9), w("доверие", 5, 5.9),

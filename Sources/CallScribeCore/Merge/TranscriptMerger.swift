@@ -49,34 +49,21 @@ public enum TranscriptMerger {
 
     // MARK: - Echo dedup
 
-    /// True when `mic` is the remote voice bleeding through the speakers: most
-    /// of its words also appear among the system-track words spoken nearby in
-    /// time. Uses *containment* (mic words found in system), not symmetric
-    /// similarity, so a short garbled mic fragment still matches a long system
-    /// utterance; the time window absorbs the echo's lag and segmentation drift.
+    /// True when `mic` is the remote voice bleeding through the speakers: it
+    /// overlaps system-track speech for most of its duration. The echo is
+    /// garbled by the time Whisper transcribes it, so we can't match text — but
+    /// genuine "Me" speech happens while the remote is silent, so a mic
+    /// utterance that sits *on top of* remote speech is echo. `systemWords` must
+    /// be sorted by start time.
     static func isEcho(of mic: Utterance, systemWords: [Word], config: MergeConfig) -> Bool {
-        let micTokens = wordSet(mic.text)
-        guard micTokens.count >= config.echoMinWords else { return false }
-        let lo = mic.start - config.echoTimeTolerance
-        let hi = mic.end + config.echoTimeTolerance
-        var systemTokens: Set<String> = []
-        for word in systemWords where word.end >= lo && word.start <= hi {
-            systemTokens.formUnion(wordSet(word.text))
+        let micDuration = max(mic.end - mic.start, 0.001)
+        var overlap = 0.0
+        for word in systemWords {
+            if word.start >= mic.end { break }          // sorted → nothing later overlaps
+            let o = min(mic.end, word.end) - max(mic.start, word.start)
+            if o > 0 { overlap += o }
         }
-        guard !systemTokens.isEmpty else { return false }   // headphones → no bleed
-        let contained = micTokens.filter { systemTokens.contains($0) }.count
-        return Double(contained) / Double(micTokens.count) >= config.echoContainment
-    }
-
-    /// Content tokens for echo matching: lowercased, punctuation-split, and with
-    /// single-character tokens dropped (short function words like "и"/"a" and
-    /// stray letters are noise that inflates the overlap).
-    private static func wordSet(_ text: String) -> Set<String> {
-        Set(
-            text.lowercased()
-                .components(separatedBy: CharacterSet.alphanumerics.inverted)
-                .filter { $0.count > 1 }
-        )
+        return min(overlap / micDuration, 1.0) >= config.echoOverlapFraction
     }
 
     // MARK: - Stages
