@@ -38,6 +38,14 @@ private func tempFile() -> URL {
         #expect(loaded.selectedID == "b")
     }
 
+    @Test func folderSlugIsFilesystemFriendly() {
+        #expect(Project.folderSlug("Work calls") == "work_calls")
+        #expect(Project.folderSlug("  Q3  Planning!! ") == "q3_planning")
+        #expect(Project.folderSlug("a/b:c") == "a_b_c")
+        #expect(Project.folderSlug("Рабочие звонки") == "рабочие_звонки")
+        #expect(Project.folderSlug("!!!") == "callscribe")
+    }
+
     @Test func repairsDanglingSelection() throws {
         let url = tempFile()
         defer { try? FileManager.default.removeItem(at: url) }

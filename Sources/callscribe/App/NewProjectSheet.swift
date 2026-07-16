@@ -1,4 +1,5 @@
 import AppKit
+import CallScribeCore
 import SwiftUI
 
 /// Create a project: name it, pick a parent folder. A dedicated subfolder for
@@ -62,9 +63,7 @@ struct NewProjectSheet: View {
     /// Preview of the dedicated folder that will be created.
     private var destination: URL? {
         guard let parent, !trimmedName.isEmpty else { return nil }
-        let folder = trimmedName.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-        return parent.appendingPathComponent(folder, isDirectory: true)
+        return parent.appendingPathComponent(Project.folderSlug(trimmedName), isDirectory: true)
     }
 
     private func pickFolder() {

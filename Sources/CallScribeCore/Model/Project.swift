@@ -17,4 +17,22 @@ public struct Project: Codable, Sendable, Identifiable, Hashable {
     }
 
     public var rootURL: URL { URL(fileURLWithPath: path) }
+
+    /// Filesystem-friendly folder name for a project title: lowercased, letters
+    /// and digits kept (any script), every run of other characters collapsed to
+    /// a single "_" — e.g. "Work calls" → "work_calls".
+    public static func folderSlug(_ name: String) -> String {
+        var result = ""
+        var pendingSeparator = false
+        for ch in name.lowercased() {
+            if ch.isLetter || ch.isNumber {
+                if pendingSeparator && !result.isEmpty { result.append("_") }
+                pendingSeparator = false
+                result.append(ch)
+            } else {
+                pendingSeparator = true
+            }
+        }
+        return result.isEmpty ? "callscribe" : result
+    }
 }

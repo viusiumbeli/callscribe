@@ -60,8 +60,7 @@ final class AppState {
     /// folder named after the project — recordings and `claude` live there, so
     /// nothing else in the chosen directory is touched — then switch to it.
     func addProject(name: String, parentURL: URL) {
-        let folderName = Self.sanitizeFolderName(name)
-        let workingDir = parentURL.appendingPathComponent(folderName, isDirectory: true)
+        let workingDir = parentURL.appendingPathComponent(Project.folderSlug(name), isDirectory: true)
         try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true)
         let project = Project(id: UUID().uuidString, name: name, path: workingDir.path)
         projects.append(project)
@@ -82,14 +81,6 @@ final class AppState {
 
     private func persistProjects() {
         try? projectStore.save(.init(projects: projects, selectedID: selectedProjectID))
-    }
-
-    private static func sanitizeFolderName(_ name: String) -> String {
-        let cleaned = name
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? "CallScribe" : cleaned
     }
 
     var isRecording: Bool {
