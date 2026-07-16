@@ -21,15 +21,38 @@ public final class WhisperTranscriber {
         prewarm: Bool = false,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
-        let config = WhisperKitConfig(
-            model: model,
-            downloadBase: modelFolder,
-            verbose: false,
-            logLevel: .error,
-            prewarm: prewarm,
-            load: true,
-            download: true
-        )
+        // If the model is already downloaded, load it straight from disk with no
+        // network — transcription is meant to be fully offline, and a Hugging
+        // Face hiccup (e.g. a 504) must not break an already-provisioned app.
+        // The tokenizer resolves locally too via downloadBase. Fall back to
+        // downloading only when the model isn't present yet (first run).
+        let localModel = modelFolder
+            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)")
+        let isCached = FileManager.default.fileExists(
+            atPath: localModel.appendingPathComponent("AudioEncoder.mlmodelc").path)
+
+        let config: WhisperKitConfig
+        if isCached {
+            config = WhisperKitConfig(
+                downloadBase: modelFolder,
+                modelFolder: localModel.path,
+                verbose: false,
+                logLevel: .error,
+                prewarm: prewarm,
+                load: true,
+                download: false
+            )
+        } else {
+            config = WhisperKitConfig(
+                model: model,
+                downloadBase: modelFolder,
+                verbose: false,
+                logLevel: .error,
+                prewarm: prewarm,
+                load: true,
+                download: true
+            )
+        }
         self.whisperKit = try await WhisperKit(config)
     }
 
