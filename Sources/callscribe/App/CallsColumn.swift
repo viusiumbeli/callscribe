@@ -7,6 +7,7 @@ struct CallsColumn: View {
     @Binding var selection: String?
 
     @State private var pendingDelete: AppState.CallSummary?
+    @State private var confirmingCancel = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -62,8 +63,24 @@ struct CallsColumn: View {
             if case .idle = state.phase {} else {
                 RecordStatusChip(phase: state.phase)
             }
+
+            if state.isRecording {
+                Button("Cancel Recording") { confirmingCancel = true }
+                    .buttonStyle(SoftButtonStyle(tint: .red))
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding(Spacing.lg)
+        .confirmationDialog(
+            "Discard this recording?",
+            isPresented: $confirmingCancel,
+            titleVisibility: .visible
+        ) {
+            Button("Discard recording", role: .destructive) { state.cancelRecording() }
+            Button("Keep recording", role: .cancel) {}
+        } message: {
+            Text("This stops recording and deletes it without transcribing.")
+        }
     }
 
     /// One call row with a soft brand-tinted highlight when selected (instead of

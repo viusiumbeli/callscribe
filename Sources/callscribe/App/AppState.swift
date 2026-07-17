@@ -154,6 +154,17 @@ final class AppState {
         }
     }
 
+    /// Abort the current recording and discard it — stop the session, delete its
+    /// folder, and return to idle without transcribing.
+    func cancelRecording() {
+        guard let session else { return }
+        timerTask?.cancel()
+        self.session = nil
+        _ = try? session.stop()             // close the WAV writers cleanly
+        try? store.delete(session.folder)   // discard the whole folder
+        phase = .idle
+    }
+
     private func handleStall() {
         guard isRecording else { return }
         stopRecording()

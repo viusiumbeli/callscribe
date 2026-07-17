@@ -80,6 +80,9 @@ struct ControlBar: View {
         Text(RecordStatus.text(state.phase))
         Divider()
         RecordButton(state: state)
+        if state.isRecording {
+            Button("Cancel Recording") { state.cancelRecording() }
+        }
         if case .done(let folder) = state.phase {
             Button("Open Last Call") { NSWorkspace.shared.open(folder) }
         }
