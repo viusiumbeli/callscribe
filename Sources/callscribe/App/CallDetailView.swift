@@ -190,18 +190,23 @@ struct CallDetailView: View {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 groupLabel("Rename")
                 HStack(spacing: Spacing.sm) {
-                    Picker("", selection: $selectedLabel) {
+                    Menu {
                         ForEach(speakerLabels, id: \.self) { label in
-                            Text(names[label].map { "\(label) → \($0)" } ?? label).tag(label)
+                            Button(names[label].map { "\(label) → \($0)" } ?? label) {
+                                selectedLabel = label
+                                renameTo = names[label] ?? ""
+                            }
                         }
+                    } label: {
+                        menuField(names[selectedLabel].map { "\(selectedLabel) → \($0)" } ?? selectedLabel, width: 200)
                     }
-                    .labelsHidden()
-                    .frame(width: 200)
-                    .onChange(of: selectedLabel) { _, new in renameTo = names[new] ?? "" }
+                    .menuStyle(.borderlessButton)
+                    .pointerCursor()
 
                     TextField("Name", text: $renameTo)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 180)
+                        .textFieldStyle(.plain)
+                        .frame(width: 170)
+                        .softField()
 
                     Button("Rename") {
                         guard !selectedLabel.isEmpty else { return }
@@ -249,12 +254,14 @@ struct CallDetailView: View {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 groupLabel("Other speakers")
                 HStack(spacing: Spacing.sm) {
-                    Picker("", selection: $expectedCount) {
-                        Text("Auto").tag(0)
-                        ForEach(1...8, id: \.self) { Text("\($0)").tag($0) }
+                    Menu {
+                        Button("Auto") { expectedCount = 0 }
+                        ForEach(1...8, id: \.self) { n in Button("\(n)") { expectedCount = n } }
+                    } label: {
+                        menuField(expectedCount == 0 ? "Auto" : "\(expectedCount)", width: 90)
                     }
-                    .labelsHidden()
-                    .frame(width: 120)
+                    .menuStyle(.borderlessButton)
+                    .pointerCursor()
 
                     Button("Re-detect") {
                         run { try await state.setExpectedSpeakers(expectedCount == 0 ? nil : expectedCount,
@@ -273,6 +280,20 @@ struct CallDetailView: View {
         Text(text.uppercased())
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
+    }
+
+    /// A soft, borderless dropdown trigger (value + chevron) matching the inputs.
+    private func menuField(_ text: String, width: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            Text(text).lineLimit(1)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: width, alignment: .leading)
+        .softField()
+        .contentShape(Rectangle())
     }
 
     /// The name to enroll under — what's in the field, else the selected label

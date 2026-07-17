@@ -53,6 +53,16 @@ extension View {
     func card(padding: CGFloat = Spacing.lg) -> some View {
         modifier(CardSurface(padding: padding))
     }
+
+    /// Soft, borderless input surface — matches SoftButtonStyle and the cards,
+    /// for text fields and menu triggers (no native bezel).
+    func softField() -> some View {
+        padding(.vertical, 7)
+            .padding(.horizontal, 12)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08)))
+    }
 }
 
 // MARK: - Button styles
