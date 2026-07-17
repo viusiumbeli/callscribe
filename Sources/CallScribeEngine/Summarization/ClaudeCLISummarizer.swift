@@ -36,7 +36,7 @@ public struct ClaudeCLISummarizer: Summarizer {
 
     /// CALLSCRIBE_CLAUDE_PATH → common install locations. GUI apps don't inherit
     /// the shell PATH, so probe explicit paths rather than relying on `which`.
-    static func resolveBinary() -> URL? {
+    public static func resolveBinary() -> URL? {
         if let override = ProcessInfo.processInfo.environment["CALLSCRIBE_CLAUDE_PATH"] {
             let url = URL(fileURLWithPath: override)
             return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil

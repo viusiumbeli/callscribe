@@ -163,6 +163,15 @@ struct CallDetailView: View {
 
             Spacer()
 
+            // Pick up an interactive Claude Code session in the project folder.
+            Button {
+                TerminalLauncher.openClaude(in: state.selectedProject.rootURL)
+            } label: {
+                Label("Claude Code", systemImage: "terminal")
+            }
+            .buttonStyle(SoftButtonStyle())
+            .help("Open Terminal with Claude Code in the project folder")
+
             // Only needed to grab the raw files (audio, markdown) out of the folder.
             Button {
                 NSWorkspace.shared.open(call.folder.url)
