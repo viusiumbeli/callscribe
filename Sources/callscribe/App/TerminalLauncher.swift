@@ -22,9 +22,18 @@ enum TerminalLauncher {
         do {
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-            NSWorkspace.shared.open(url)
         } catch {
-            // Best-effort; nothing to surface if the temp write fails.
+            return   // best-effort; nothing to surface if the temp write fails
+        }
+
+        // macOS has no "default terminal" setting — `.command` opens in Terminal
+        // by default. Prefer iTerm2 when it's installed (it runs .command too);
+        // otherwise use the default handler.
+        let workspace = NSWorkspace.shared
+        if let iterm = workspace.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2") {
+            workspace.open([url], withApplicationAt: iterm, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            workspace.open(url)
         }
     }
 
