@@ -61,15 +61,18 @@ public enum FluidDiarizer {
     /// Below this cosine distance between a diarized speaker's centroid and an
     /// enrolled voice we call them the same person. Strict on purpose — a false
     /// name is worse than a missed match.
-    static let voiceMatchThreshold: Float = 0.4
+    static let voiceMatchThreshold: Float = 0.35
 
     /// Map each diarized `speakerId` to an enrolled voice name, when confident.
+    /// One-to-one: a voice claims at most one speaker and a speaker at most one
+    /// voice (greedy by closest distance), so two different people can't both be
+    /// labeled with the same enrolled name.
     private static func matchVoices(
         _ segments: [TimedSpeakerSegment], to voices: [VoiceProfile]
     ) -> [String: String] {
         guard !voices.isEmpty else { return [:] }
 
-        // Duration-weighted average embedding per diarized speaker.
+        // Duration-weighted average embedding (centroid) per diarized speaker.
         var sums: [String: [Float]] = [:]
         for seg in segments where !seg.embedding.isEmpty {
             let weight = max(seg.endTimeSeconds - seg.startTimeSeconds, 0.001)
@@ -78,15 +81,26 @@ public enum FluidDiarizer {
             sums[seg.speakerId] = acc
         }
 
-        var result: [String: String] = [:]
+        // All (speaker, voice) pairs within the threshold, closest first.
+        var candidates: [(distance: Float, speaker: String, name: String)] = []
         for (speakerId, sum) in sums {
             let centroid = normalize(sum)
-            var best: (name: String, distance: Float)?
             for voice in voices {
                 let d = cosineDistance(centroid, normalize(voice.embedding))
-                if best == nil || d < best!.distance { best = (voice.name, d) }
+                if d <= voiceMatchThreshold {
+                    candidates.append((d, speakerId, voice.name))
+                }
             }
-            if let best, best.distance <= voiceMatchThreshold { result[speakerId] = best.name }
+        }
+        candidates.sort { $0.distance < $1.distance }
+
+        // Greedy one-to-one assignment.
+        var result: [String: String] = [:]
+        var usedNames = Set<String>()
+        for candidate in candidates {
+            guard result[candidate.speaker] == nil, !usedNames.contains(candidate.name) else { continue }
+            result[candidate.speaker] = candidate.name
+            usedNames.insert(candidate.name)
         }
         return result
     }

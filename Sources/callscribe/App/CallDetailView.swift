@@ -334,7 +334,7 @@ struct CallDetailView: View {
         enrolledNames = state.enrolledVoiceNames()
         expectedCount = state.expectedSpeakers(for: call.folder) ?? 0
         turns = Self.loadTurns(folder: call.folder, transcript: transcript, names: names)
-        speakerLabels = Self.labels(in: transcript, names: names)
+        speakerLabels = Self.orderedLabels(turns)
         if !speakerLabels.contains(selectedLabel) { selectedLabel = speakerLabels.first ?? "" }
         renameTo = names[selectedLabel] ?? ""
         player.load(call.folder)
@@ -365,18 +365,15 @@ struct CallDetailView: View {
         }
     }
 
-    /// Canonical speaker labels present in the transcript ("Me", "Speaker 1",
-    /// "Participant"), in first-appearance order. A line may already show a
-    /// renamed name, so map displayed names back to their canonical label.
-    static func labels(in transcript: String, names: [String: String]) -> [String] {
-        let reverse = Dictionary(names.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+    /// The distinct canonical speaker labels ("Me", "Speaker 1", or a
+    /// voice-matched name), in first-appearance order. Taken straight from the
+    /// canonical turns so each speaker is a stable, separate entry — renaming one
+    /// (a display-name override) can never merge it with another.
+    static func orderedLabels(_ turns: [Turn]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
-        for line in transcript.split(separator: "\n") {
-            guard let match = line.firstMatch(of: /\*\*\[[0-9:]+\]\s+(.+?):\*\*/) else { continue }
-            let shown = String(match.1)
-            let canonical = reverse[shown] ?? shown
-            if seen.insert(canonical).inserted { result.append(canonical) }
+        for turn in turns where seen.insert(turn.label).inserted {
+            result.append(turn.label)
         }
         return result
     }
