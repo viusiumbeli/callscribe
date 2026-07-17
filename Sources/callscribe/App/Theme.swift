@@ -42,9 +42,12 @@ private struct CardSurface: ViewModifier {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                    // Adaptive hairline: a subtle dark edge in light mode, light
+                    // in dark — so cards stay distinct in both (a white-only
+                    // border vanished on a light background).
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+            .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
     }
 }
 

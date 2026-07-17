@@ -109,7 +109,7 @@ struct SummaryView: View {
         }
         .padding(.vertical, Spacing.sm)
         .padding(.horizontal, Spacing.md)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     /// Bullets as one concatenated Text (selectable across lines), keeping each
