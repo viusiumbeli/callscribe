@@ -18,7 +18,6 @@ struct CallDetailView: View {
     @State private var selectedLabel = ""
     @State private var renameTo = ""
     @State private var player = CallAudioPlayer()
-    @State private var showAudio = true
     @State private var showTranscript = true
     @State private var showSpeakers = true
     @State private var confirmingDelete = false
@@ -26,46 +25,48 @@ struct CallDetailView: View {
     @State private var busy = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xl) {
-                actions
-
-                if busy {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Working…").foregroundStyle(.secondary)
-                    }
-                }
-
-                if let actionError {
-                    ErrorBanner(message: actionError) { self.actionError = nil }
-                }
-
-                if player.isReady {
-                    SectionCard(title: "Audio", systemImage: "waveform", isExpanded: $showAudio) {
-                        playbackBar
-                    }
-                }
-
-                if !summary.isEmpty {
-                    SummaryView(
-                        markdown: summary,
-                        onToggle: { index in toggleTask(index) },
-                        onDeleteTask: { index in deleteTask(index) }
-                    )
-                }
-
-                if !speakerLabels.isEmpty {
-                    SectionCard(title: "Speakers", systemImage: "person.2", isExpanded: $showSpeakers) {
-                        renameControls
-                    }
-                }
-
-                SectionCard(title: "Transcript", systemImage: "text.quote", isExpanded: $showTranscript) {
-                    TranscriptView(turns: turns, names: names, player: player)
-                }
+        VStack(spacing: 0) {
+            // The player stays pinned at the top so play/pause + scrubbing are
+            // reachable while a long transcript scrolls underneath.
+            if player.isReady {
+                pinnedAudioBar
             }
-            .padding(Spacing.xl)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.xl) {
+                    actions
+
+                    if busy {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Working…").foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let actionError {
+                        ErrorBanner(message: actionError) { self.actionError = nil }
+                    }
+
+                    if !summary.isEmpty {
+                        SummaryView(
+                            markdown: summary,
+                            onToggle: { index in toggleTask(index) },
+                            onDeleteTask: { index in deleteTask(index) }
+                        )
+                    }
+
+                    if !speakerLabels.isEmpty {
+                        SectionCard(title: "Speakers", systemImage: "person.2", isExpanded: $showSpeakers) {
+                            renameControls
+                        }
+                    }
+
+                    SectionCard(title: "Transcript", systemImage: "text.quote", isExpanded: $showTranscript) {
+                        TranscriptView(turns: turns, names: names, player: player)
+                    }
+                }
+                .padding(Spacing.xl)
+            }
         }
         .onChange(of: call.id, initial: true) { _, _ in load() }
         .onDisappear { player.teardown() }
@@ -86,6 +87,18 @@ struct CallDetailView: View {
     }
 
     // MARK: - Playback
+
+    /// The player as a compact fixed header (material + hairline bottom border)
+    /// so the transcript scrolls under it.
+    private var pinnedAudioBar: some View {
+        playbackBar
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
+            .background(.regularMaterial)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
+            }
+    }
 
     private var playbackBar: some View {
         VStack(alignment: .leading, spacing: 8) {
