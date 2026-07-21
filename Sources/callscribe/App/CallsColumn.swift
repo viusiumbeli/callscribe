@@ -13,9 +13,6 @@ struct CallsColumn: View {
         VStack(spacing: 0) {
             recordHeader
             Divider()
-            if !state.selectedProjectProcessing.isEmpty {
-                processingBanner
-            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(daySections) { section in
@@ -86,28 +83,6 @@ struct CallsColumn: View {
         }
     }
 
-    /// A prominent banner above the list while this project has a call being
-    /// processed in the background.
-    private var processingBanner: some View {
-        let jobs = state.selectedProjectProcessing
-        let stage = jobs.first.map { Self.stageLabel($0.stage) } ?? "Processing…"
-        return HStack(spacing: Spacing.sm) {
-            ProgressView().controlSize(.small)
-            Text(stage).font(.callout.weight(.medium))
-            Spacer(minLength: 0)
-            if jobs.count > 1 {
-                Text("+\(jobs.count - 1) queued").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(Color.brand.opacity(0.12))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
-        }
-    }
-
     /// One call row with a soft brand-tinted highlight when selected (instead of
     /// the heavy full-saturation List selection bar).
     private func callRow(_ call: AppState.CallSummary) -> some View {
@@ -117,6 +92,16 @@ struct CallsColumn: View {
             selection = call.id
         } label: {
             VStack(alignment: .leading, spacing: Spacing.xs) {
+                if let stage = state.processingStage(for: call.folder) {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small).scaleEffect(0.8)
+                        Text(Self.stageLabel(stage)).font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(Color.brand)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, 3)
+                    .background(Color.brand.opacity(0.12), in: Capsule())
+                }
                 Text(call.title ?? CallFormatting.time(call))
                     .font(.body.weight(.medium))
                     .foregroundStyle(isSelected ? Color.brand : Color.primary)
