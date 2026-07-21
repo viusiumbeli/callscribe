@@ -91,23 +91,21 @@ struct CallsColumn: View {
         return Button {
             selection = call.id
         } label: {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                if let stage = state.processingStage(for: call.folder) {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.small).scaleEffect(0.8)
-                        Text(Self.stageLabel(stage)).font(.caption.weight(.semibold))
+            HStack(spacing: Spacing.sm) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(call.title ?? CallFormatting.time(call))
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(isSelected ? Color.brand : Color.primary)
+                        .lineLimit(2)
+                    if let stage = state.processingStage(for: call.folder) {
+                        Text(Self.stageLabel(stage)).font(.caption).foregroundStyle(.secondary)
+                    } else if !sub.isEmpty {
+                        Text(sub).font(.caption).foregroundStyle(.secondary)
                     }
-                    .foregroundStyle(Color.brand)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, 3)
-                    .background(Color.brand.opacity(0.12), in: Capsule())
                 }
-                Text(call.title ?? CallFormatting.time(call))
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(isSelected ? Color.brand : Color.primary)
-                    .lineLimit(2)
-                if !sub.isEmpty {
-                    Text(sub).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if state.isProcessing(call.folder) {
+                    ProgressView().controlSize(.small)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
