@@ -23,6 +23,10 @@ struct MainWindowView: View {
                     ErrorBanner(message: message) { state.clearError() }
                         .padding([.horizontal, .top], 10)
                 }
+                if let processingError = state.processingError {
+                    ErrorBanner(message: processingError) { state.clearProcessingError() }
+                        .padding([.horizontal, .top], 10)
+                }
                 HStack(spacing: 0) {
                     if showHistory {
                         CallsColumn(state: state, selection: $selectedCallID)

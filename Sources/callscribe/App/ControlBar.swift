@@ -7,8 +7,6 @@ enum RecordStatus {
         switch phase {
         case .idle: "Ready"
         case .recording(let elapsed): "Recording  \(clock(elapsed))"
-        case .processing(let stage): "Processing: \(stage)…"
-        case .done: "Done"
         case .failed: "Error"
         }
     }
@@ -19,7 +17,7 @@ enum RecordStatus {
     }
 }
 
-/// A small status pill for the toolbar: icon (or spinner) + text.
+/// A small status pill for the toolbar: icon + recording status.
 struct RecordStatusChip: View {
     let phase: AppState.Phase
 
@@ -38,10 +36,6 @@ struct RecordStatusChip: View {
         switch phase {
         case .recording:
             Image(systemName: "record.circle").foregroundStyle(.red)
-        case .processing:
-            ProgressView().controlSize(.small).scaleEffect(0.75)
-        case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .idle:
@@ -50,21 +44,40 @@ struct RecordStatusChip: View {
     }
 }
 
-/// The Start / Stop / Processing button, shared by the window toolbar and the
-/// tray menu.
+/// A small pill showing background processing (transcribe → … → summarize).
+struct ProcessingChip: View {
+    let count: Int
+    let stage: String?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ProgressView().controlSize(.small).scaleEffect(0.75)
+            Text(label).font(.callout)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
+    }
+
+    private var label: String {
+        let base = count > 1 ? "Processing \(count)" : "Processing"
+        return stage.map { "\(base): \($0)…" } ?? "\(base)…"
+    }
+}
+
+/// The Start / Stop button, shared by the window toolbar and the tray menu.
+/// Recording and background processing are independent, so this is never
+/// blocked by processing.
 struct RecordButton: View {
     @Bindable var state: AppState
 
     var body: some View {
-        switch state.phase {
-        case .recording:
+        if state.isRecording {
             Button { state.stopRecording() } label: {
                 Label("Stop & Transcribe", systemImage: "stop.circle.fill")
             }
-        case .processing:
-            Button {} label: { Label("Processing…", systemImage: "hourglass") }
-                .disabled(true)
-        default:
+        } else {
             Button { state.startRecording() } label: {
                 Label("Start Recording", systemImage: "record.circle")
             }
@@ -83,8 +96,8 @@ struct ControlBar: View {
         if state.isRecording {
             Button("Cancel Recording") { state.cancelRecording() }
         }
-        if case .done(let folder) = state.phase {
-            Button("Open Last Call") { NSWorkspace.shared.open(folder) }
+        if state.processingCount > 0 {
+            Text("Processing \(state.processingCount) call\(state.processingCount > 1 ? "s" : "")…")
         }
     }
 }

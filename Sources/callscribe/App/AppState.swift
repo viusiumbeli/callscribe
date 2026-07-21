@@ -6,15 +6,28 @@ import Observation
 @MainActor
 @Observable
 final class AppState {
+    /// The recording lifecycle only. Post-recording processing is tracked
+    /// separately (see `processing`) so it can run in the background while the
+    /// recorder is free to start again.
     enum Phase: Equatable {
         case idle
         case recording(elapsed: TimeInterval)
-        case processing(stage: String)
-        case done(folder: URL)
         case failed(String)
     }
 
+    /// One call being processed in the background (transcribe → … → summarize).
+    struct ProcessingJob: Identifiable, Equatable {
+        let folder: CallFolder
+        var stage: String
+        var id: String { folder.url.path }
+    }
+
     private(set) var phase: Phase = .idle
+    /// Calls queued/processing in the background, in FIFO order (serial).
+    private(set) var processing: [ProcessingJob] = []
+    /// Last background-processing failure, shown as a dismissable banner.
+    private(set) var processingError: String?
+    private var draining = false
     private(set) var calls: [CallSummary] = []
     private(set) var projects: [Project] = []
     var selectedProjectID: String = "" {
@@ -95,8 +108,8 @@ final class AppState {
 
     /// Delete a call's entire folder from disk and drop it from history.
     func delete(_ folder: CallFolder) {
+        processing.removeAll { $0.folder.url == folder.url }   // stop tracking if queued
         try? store.delete(folder)
-        if case .done(let done) = phase, done == folder.url { phase = .idle }
         refreshHistory()
     }
 
@@ -146,8 +159,9 @@ final class AppState {
         do {
             let folder = try session.stop()
             self.session = nil
-            phase = .processing(stage: "starting")
-            runPipeline(folder: folder)
+            phase = .idle                 // recorder is free again immediately
+            enqueueProcessing(folder)      // pipeline runs in the background
+            refreshHistory()               // the new call appears right away
         } catch {
             self.session = nil
             phase = .failed(error.localizedDescription)
@@ -180,30 +194,58 @@ final class AppState {
         }
     }
 
-    private func runPipeline(folder: CallFolder) {
+    // MARK: - Background processing queue
+
+    /// Is this call currently queued or processing?
+    func isProcessing(_ folder: CallFolder) -> Bool {
+        processing.contains { $0.folder.url == folder.url }
+    }
+
+    /// Current stage for a processing call (nil if not processing).
+    func processingStage(for folder: CallFolder) -> String? {
+        processing.first { $0.folder.url == folder.url }?.stage
+    }
+
+    var processingCount: Int { processing.count }
+
+    func clearProcessingError() { processingError = nil }
+
+    private func enqueueProcessing(_ folder: CallFolder) {
+        processing.append(ProcessingJob(folder: folder, stage: "queued"))
+        drainQueue()
+    }
+
+    /// Drain the queue one call at a time — two concurrent transcriptions would
+    /// thrash memory/ANE, and recording stays responsive regardless (the heavy
+    /// work is inside the PipelineRunner actor).
+    private func drainQueue() {
+        guard !draining else { return }
+        draining = true
         Task {
-            do {
-                let modelsDir = try AppPaths.ensureModelsDirectory()
-                let runner = PipelineRunner(
-                    folder: folder,
-                    modelsDir: modelsDir,
-                    summarizer: ClaudeCLISummarizer(workingDirectory: selectedProject.rootURL)
-                )
-                try await runner.run { stage in
-                    Task { @MainActor in self.phase = .processing(stage: stage.rawValue) }
+            while let job = processing.first {
+                do {
+                    let runner = PipelineRunner(
+                        folder: job.folder,
+                        modelsDir: try AppPaths.ensureModelsDirectory(),
+                        // The call's own project directory (robust to switching).
+                        summarizer: ClaudeCLISummarizer(
+                            workingDirectory: job.folder.url.deletingLastPathComponent())
+                    )
+                    try await runner.run { stage in
+                        Task { @MainActor in self.setStage(job.id, stage.rawValue) }
+                    }
+                } catch {
+                    processingError = error.localizedDescription
                 }
-                phase = .done(folder: folder.url)
-                refreshHistory()
-                // "Done" is a brief confirmation, not a resting state — clear it.
-                Task {
-                    try? await Task.sleep(for: .seconds(3))
-                    if case .done(let f) = phase, f == folder.url { phase = .idle }
-                }
-            } catch {
-                phase = .failed(error.localizedDescription)
+                processing.removeAll { $0.id == job.id }
                 refreshHistory()
             }
+            draining = false
         }
+    }
+
+    private func setStage(_ id: String, _ stage: String) {
+        if let i = processing.firstIndex(where: { $0.id == id }) { processing[i].stage = stage }
     }
 
     /// Rename a speaker label and re-render that call's transcript. Per-call

@@ -69,6 +69,10 @@ struct CallsColumn: View {
                     .buttonStyle(SoftButtonStyle(tint: .red))
                     .frame(maxWidth: .infinity)
             }
+
+            if state.processingCount > 0 {
+                ProcessingChip(count: state.processingCount, stage: state.processing.first?.stage)
+            }
         }
         .padding(Spacing.lg)
         .confirmationDialog(
@@ -91,13 +95,19 @@ struct CallsColumn: View {
         return Button {
             selection = call.id
         } label: {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(call.title ?? CallFormatting.time(call))
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(isSelected ? Color.brand : Color.primary)
-                    .lineLimit(2)
-                if !sub.isEmpty {
-                    Text(sub).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: Spacing.sm) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text(call.title ?? CallFormatting.time(call))
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(isSelected ? Color.brand : Color.primary)
+                        .lineLimit(2)
+                    if !sub.isEmpty {
+                        Text(sub).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                if state.isProcessing(call.folder) {
+                    ProgressView().controlSize(.small)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

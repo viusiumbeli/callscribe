@@ -36,6 +36,16 @@ struct CallDetailView: View {
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     actions
 
+                    if let stage = state.processingStage(for: call.folder) {
+                        HStack(spacing: Spacing.sm) {
+                            ProgressView().controlSize(.small)
+                            Text("Processing this recording — \(stage)…")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .card()
+                    }
+
                     if busy {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
@@ -69,6 +79,9 @@ struct CallDetailView: View {
             }
         }
         .onChange(of: call.id, initial: true) { _, _ in load() }
+        // Reload when this call finishes background processing so its transcript
+        // and summary appear without reopening.
+        .onChange(of: state.isProcessing(call.folder)) { _, _ in load() }
         .onDisappear { player.teardown() }
         .confirmationDialog(
             "Delete this recording?",
