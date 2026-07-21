@@ -61,7 +61,7 @@ struct TranscriptView: View {
     private func bubble(_ turn: Turn, color: Color, isMe: Bool, active: Bool) -> some View {
         HStack(spacing: 0) {
             if isMe { Spacer(minLength: 40) }
-            VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     timecode(turn, color: color)
                     Text(names[turn.label] ?? turn.label)
@@ -69,7 +69,7 @@ struct TranscriptView: View {
                 }
                 Text(turn.text)
                     .textSelection(.enabled)
-                    .multilineTextAlignment(isMe ? .trailing : .leading)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 12)
