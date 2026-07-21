@@ -216,6 +216,15 @@ final class AppState {
 
     var processingCount: Int { processing.count }
 
+    /// Background jobs whose call lives in the currently-selected project (a call
+    /// folder sits directly under its project root).
+    var selectedProjectProcessing: [ProcessingJob] {
+        let root = selectedProject.rootURL.standardizedFileURL.path
+        return processing.filter {
+            $0.folder.url.deletingLastPathComponent().standardizedFileURL.path == root
+        }
+    }
+
     func clearProcessingError() { processingError = nil }
 
     private func enqueueProcessing(_ folder: CallFolder) {
