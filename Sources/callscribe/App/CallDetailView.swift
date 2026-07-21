@@ -100,16 +100,18 @@ struct CallDetailView: View {
     /// styled to match `pinnedAudioBar` so the two bars stack cleanly.
     private func processingHeader(_ stage: String) -> some View {
         HStack(spacing: Spacing.sm) {
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.small).tint(.brand)
             Text("Processing — \(CallFormatting.stageLabel(stage))")
-                .foregroundStyle(.secondary)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(Color.brand)
             Spacer()
         }
         .padding(.horizontal, Spacing.xl)
         .padding(.vertical, Spacing.md)
-        .background(.regularMaterial)
+        .background(Color.brand.opacity(0.14))   // indigo tint over the material…
+        .background(.regularMaterial)            // …keeps the translucent chrome feel
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
+            Rectangle().fill(Color.brand.opacity(0.25)).frame(height: 1)
         }
     }
 
