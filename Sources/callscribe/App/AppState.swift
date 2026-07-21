@@ -19,7 +19,15 @@ final class AppState {
     struct ProcessingJob: Identifiable, Equatable {
         let folder: CallFolder
         var stage: String
-        var id: String { folder.url.path }
+        var id: String { AppState.key(folder) }
+    }
+
+    /// Stable identity for a call folder. `standardizedFileURL` (not `==` on the
+    /// raw URL, nor `.path`) — the recorder builds URLs via `appendingPathComponent`
+    /// while the history lists them via `contentsOfDirectory`, which differ by
+    /// symlink resolution (/var vs /private/var) and trailing slash.
+    nonisolated static func key(_ folder: CallFolder) -> String {
+        folder.url.standardizedFileURL.path
     }
 
     private(set) var phase: Phase = .idle
@@ -108,7 +116,7 @@ final class AppState {
 
     /// Delete a call's entire folder from disk and drop it from history.
     func delete(_ folder: CallFolder) {
-        processing.removeAll { $0.folder.url == folder.url }   // stop tracking if queued
+        processing.removeAll { $0.id == Self.key(folder) }   // stop tracking if queued
         try? store.delete(folder)
         refreshHistory()
     }
@@ -198,12 +206,12 @@ final class AppState {
 
     /// Is this call currently queued or processing?
     func isProcessing(_ folder: CallFolder) -> Bool {
-        processing.contains { $0.folder.url == folder.url }
+        processing.contains { $0.id == Self.key(folder) }
     }
 
     /// Current stage for a processing call (nil if not processing).
     func processingStage(for folder: CallFolder) -> String? {
-        processing.first { $0.folder.url == folder.url }?.stage
+        processing.first { $0.id == Self.key(folder) }?.stage
     }
 
     var processingCount: Int { processing.count }
