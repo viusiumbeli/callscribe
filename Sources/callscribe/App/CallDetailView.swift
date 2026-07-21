@@ -26,6 +26,11 @@ struct CallDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Processing status pinned at the very top, above the player.
+            if let stage = state.processingStage(for: call.folder) {
+                processingHeader(stage)
+            }
+
             // The player stays pinned at the top so play/pause + scrubbing are
             // reachable while a long transcript scrolls underneath.
             if player.isReady {
@@ -35,16 +40,6 @@ struct CallDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     actions
-
-                    if let stage = state.processingStage(for: call.folder) {
-                        HStack(spacing: Spacing.sm) {
-                            ProgressView().controlSize(.small)
-                            Text("Processing this recording — \(stage)…")
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .card()
-                    }
 
                     if busy {
                         HStack(spacing: 6) {
@@ -100,6 +95,23 @@ struct CallDetailView: View {
     }
 
     // MARK: - Playback
+
+    /// Background-processing status as a fixed header pinned above the player,
+    /// styled to match `pinnedAudioBar` so the two bars stack cleanly.
+    private func processingHeader(_ stage: String) -> some View {
+        HStack(spacing: Spacing.sm) {
+            ProgressView().controlSize(.small)
+            Text("Processing — \(CallFormatting.stageLabel(stage))")
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, Spacing.xl)
+        .padding(.vertical, Spacing.md)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
+        }
+    }
 
     /// The player as a compact fixed header (material + hairline bottom border)
     /// so the transcript scrolls under it.

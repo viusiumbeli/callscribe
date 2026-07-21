@@ -31,6 +31,19 @@ enum CallFormatting {
         return String(format: "%d:%02d", t / 60, t % 60)
     }
 
+    /// Friendly label for a pipeline stage shown while a call is processing.
+    static func stageLabel(_ stage: String) -> String {
+        switch stage {
+        case "queued": "Queued…"
+        case "echoCancel": "Cleaning audio…"
+        case "transcribe": "Transcribing…"
+        case "diarize": "Detecting speakers…"
+        case "merge": "Merging…"
+        case "summarize": "Summarizing…"
+        default: "Processing…"
+        }
+    }
+
     /// Day-section heading: Today / Yesterday / an abbreviated date.
     static func dayTitle(_ day: Date) -> String {
         if day == .distantPast { return "Earlier" }

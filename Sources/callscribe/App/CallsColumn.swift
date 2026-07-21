@@ -98,7 +98,7 @@ struct CallsColumn: View {
                         .foregroundStyle(isSelected ? Color.brand : Color.primary)
                         .lineLimit(2)
                     if let stage = state.processingStage(for: call.folder) {
-                        Text(Self.stageLabel(stage)).font(.caption).foregroundStyle(.secondary)
+                        Text(CallFormatting.stageLabel(stage)).font(.caption).foregroundStyle(.secondary)
                     } else if !sub.isEmpty {
                         Text(sub).font(.caption).foregroundStyle(.secondary)
                     }
@@ -121,19 +121,6 @@ struct CallsColumn: View {
         .pointerCursor()
         .contextMenu {
             Button("Delete", role: .destructive) { pendingDelete = call }
-        }
-    }
-
-    /// Friendly label for a pipeline stage shown while a call is processing.
-    private static func stageLabel(_ stage: String) -> String {
-        switch stage {
-        case "queued": "Queued…"
-        case "echoCancel": "Cleaning audio…"
-        case "transcribe": "Transcribing…"
-        case "diarize": "Detecting speakers…"
-        case "merge": "Merging…"
-        case "summarize": "Summarizing…"
-        default: "Processing…"
         }
     }
 
