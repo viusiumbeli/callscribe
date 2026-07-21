@@ -69,10 +69,6 @@ struct CallsColumn: View {
                     .buttonStyle(SoftButtonStyle(tint: .red))
                     .frame(maxWidth: .infinity)
             }
-
-            if state.processingCount > 0 {
-                ProcessingChip(count: state.processingCount, stage: state.processing.first?.stage)
-            }
         }
         .padding(Spacing.lg)
         .confirmationDialog(
@@ -95,19 +91,18 @@ struct CallsColumn: View {
         return Button {
             selection = call.id
         } label: {
-            HStack(alignment: .top, spacing: Spacing.sm) {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(call.title ?? CallFormatting.time(call))
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(isSelected ? Color.brand : Color.primary)
-                        .lineLimit(2)
-                    if !sub.isEmpty {
-                        Text(sub).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(call.title ?? CallFormatting.time(call))
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(isSelected ? Color.brand : Color.primary)
+                    .lineLimit(2)
+                if let stage = state.processingStage(for: call.folder) {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small).scaleEffect(0.7)
+                        Text(Self.stageLabel(stage)).font(.caption).foregroundStyle(.secondary)
                     }
-                }
-                Spacer(minLength: 0)
-                if state.isProcessing(call.folder) {
-                    ProgressView().controlSize(.small)
+                } else if !sub.isEmpty {
+                    Text(sub).font(.caption).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -123,6 +118,19 @@ struct CallsColumn: View {
         .pointerCursor()
         .contextMenu {
             Button("Delete", role: .destructive) { pendingDelete = call }
+        }
+    }
+
+    /// Friendly label for a pipeline stage shown while a call is processing.
+    private static func stageLabel(_ stage: String) -> String {
+        switch stage {
+        case "queued": "Queued…"
+        case "echoCancel": "Cleaning audio…"
+        case "transcribe": "Transcribing…"
+        case "diarize": "Detecting speakers…"
+        case "merge": "Merging…"
+        case "summarize": "Summarizing…"
+        default: "Processing…"
         }
     }
 

@@ -44,28 +44,6 @@ struct RecordStatusChip: View {
     }
 }
 
-/// A small pill showing background processing (transcribe → … → summarize).
-struct ProcessingChip: View {
-    let count: Int
-    let stage: String?
-
-    var body: some View {
-        HStack(spacing: 5) {
-            ProgressView().controlSize(.small).scaleEffect(0.75)
-            Text(label).font(.callout)
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .background(.quaternary, in: Capsule())
-    }
-
-    private var label: String {
-        let base = count > 1 ? "Processing \(count)" : "Processing"
-        return stage.map { "\(base): \($0)…" } ?? "\(base)…"
-    }
-}
-
 /// The Start / Stop button, shared by the window toolbar and the tray menu.
 /// Recording and background processing are independent, so this is never
 /// blocked by processing.
