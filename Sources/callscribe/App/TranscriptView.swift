@@ -63,7 +63,7 @@ struct TranscriptView: View {
             if isMe { Spacer(minLength: 40) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    timecode(turn, color: color)
+                    TimecodeButton(start: turn.start, color: color, player: player)
                     Text(names[turn.label] ?? turn.label)
                         .font(.caption.weight(.semibold)).foregroundStyle(color)
                 }
@@ -84,28 +84,6 @@ struct TranscriptView: View {
             )
             .frame(maxWidth: 480, alignment: isMe ? .trailing : .leading)
             if !isMe { Spacer(minLength: 40) }
-        }
-    }
-
-    /// Clickable timecode that seeks playback to this turn. Falls back to plain
-    /// text when there's no audio to seek.
-    @ViewBuilder
-    private func timecode(_ turn: Turn, color: Color) -> some View {
-        if player.isReady {
-            Button {
-                player.seek(to: turn.start)
-                player.play()
-            } label: {
-                Text(CallAudioPlayer.clock(turn.start)).font(.caption2.monospacedDigit())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(color)
-            .help("Jump to this point in the audio")
-            .pointerCursor()
-        } else {
-            Text(CallAudioPlayer.clock(turn.start))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
         }
     }
 }

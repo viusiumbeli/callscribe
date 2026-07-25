@@ -55,6 +55,7 @@ struct CallDetailView: View {
                     if !summary.isEmpty {
                         SummaryView(
                             markdown: summary,
+                            player: player,
                             onToggle: { index in toggleTask(index) },
                             onDeleteTask: { index in deleteTask(index) }
                         )

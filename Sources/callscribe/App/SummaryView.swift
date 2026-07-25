@@ -8,6 +8,8 @@ import SwiftUI
 /// be copied as a whole.
 struct SummaryView: View {
     let markdown: String
+    /// Seeks playback from a topic's timecode.
+    let player: CallAudioPlayer
     /// Called with a task's global index when its checkbox is toggled.
     var onToggle: (Int) -> Void
     /// Called with a task's global index when it should be deleted.
@@ -15,6 +17,8 @@ struct SummaryView: View {
 
     /// Section titles the user has collapsed (empty ⇒ all expanded).
     @State private var collapsed: Set<String> = []
+    /// Sub-section (topic) titles the user has opened — collapsed by default.
+    @State private var expandedTopics: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -28,11 +32,64 @@ struct SummaryView: View {
                         isExpanded: expansion(section.title),
                         onCopy: { copyToPasteboard(Self.plainText(section)) }
                     ) {
-                        blocks(section.blocks)
+                        VStack(alignment: .leading, spacing: Spacing.md) {
+                            blocks(section.blocks)
+                            if !section.subsections.isEmpty {
+                                topicRows(section.subsections)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// Nested `###` sub-sections (the call's topics) as collapsed rows: a
+    /// timecode + name you click to reveal that topic's discussion.
+    private func topicRows(_ topics: [SummaryMarkdown.Section]) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            ForEach(Array(topics.enumerated()), id: \.offset) { _, topic in
+                topicRow(topic)
+            }
+        }
+    }
+
+    private func topicRow(_ topic: SummaryMarkdown.Section) -> some View {
+        let (start, name) = SummaryMarkdown.splitTimecode(topic.title)
+        let isOpen = expandedTopics.contains(topic.title)
+        return VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack(spacing: Spacing.md) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+
+                if let start {
+                    TimecodeButton(start: start, color: .brand, player: player)
+                }
+
+                Text(name)
+                    .font(.body.weight(.medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isOpen { expandedTopics.remove(topic.title) }
+                    else { expandedTopics.insert(topic.title) }
+                }
+            }
+            .pointerCursor()
+
+            if isOpen {
+                blocks(topic.blocks)
+                    .padding(.leading, Spacing.xl)
+            }
+        }
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.md)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func expansion(_ title: String) -> Binding<Bool> {
@@ -128,7 +185,8 @@ struct SummaryView: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// Serialize a section's blocks to portable plain text for copying.
+    /// Serialize a section's blocks — and any nested topics — to portable plain
+    /// text for copying.
     static func plainText(_ section: SummaryMarkdown.Section) -> String {
         var lines: [String] = []
         for block in section.blocks {
@@ -141,6 +199,11 @@ struct SummaryView: View {
                 lines.append(contentsOf: tasks.map { "- [\($0.done ? "x" : " ")] \($0.text)" })
             }
         }
+        for topic in section.subsections {
+            lines.append("")
+            lines.append("## \(topic.title)")
+            lines.append(plainText(topic))
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -149,6 +212,7 @@ struct SummaryView: View {
         case let t where t.contains("task"): "checklist"
         case let t where t.contains("agree"): "checkmark.seal"
         case let t where t.contains("summary"): "text.alignleft"
+        case let t where t.contains("topic"): "list.bullet.rectangle"
         default: "doc.text"
         }
     }

@@ -23,9 +23,19 @@ public enum SummaryMarkdown {
         /// appears before the first heading.
         public var title: String
         public var blocks: [Block]
+        /// Heading depth (number of leading `#`); 0 for pre-heading content.
+        public var level: Int = 0
+        /// Deeper headings nested under this one (`###` topics under `## Topics`).
+        public var subsections: [Section] = []
     }
 
     public static func parse(_ markdown: String) -> [Section] {
+        nest(parseFlat(markdown))
+    }
+
+    /// Sections in document order, each carrying its heading depth — the input
+    /// to `nest`.
+    static func parseFlat(_ markdown: String) -> [Section] {
         var sections: [Section] = []
         var current = Section(title: "", blocks: [])
         var taskCounter = 0
@@ -58,6 +68,7 @@ public enum SummaryMarkdown {
 
             if line.hasPrefix("#") {
                 flushSection()
+                current.level = line.prefix(while: { $0 == "#" }).count
                 current.title = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
             } else if let task = parseTask(line, index: taskCounter) {
                 flushParagraph(); flushBullets()
@@ -74,6 +85,55 @@ public enum SummaryMarkdown {
         }
         flushSection()
         return sections
+    }
+
+    /// Fold a flat, depth-tagged section list into a tree: each section becomes a
+    /// subsection of the nearest preceding shallower one (so `### topics` nest
+    /// under `## Topics`). A deeper heading with no shallower parent degrades to a
+    /// root section; pre-heading content (level 0, untitled) is always a root and
+    /// never adopts what follows it.
+    static func nest(_ flat: [Section]) -> [Section] {
+        var roots: [Section] = []
+        var open: [Section] = []   // ancestors being filled, strictly increasing level
+
+        /// Close every open section at or below `level`, attaching each to its
+        /// parent (or to the roots once the stack empties).
+        func close(downTo level: Int) {
+            while let child = open.last, child.level >= level {
+                open.removeLast()
+                if var parent = open.popLast() {
+                    parent.subsections.append(child)
+                    open.append(parent)
+                } else {
+                    roots.append(child)
+                }
+            }
+        }
+
+        for section in flat {
+            guard section.level > 0 else { roots.append(section); continue }
+            close(downTo: section.level)
+            open.append(section)
+        }
+        close(downTo: 1)
+        return roots
+    }
+
+    /// Split a leading `[HH:MM:SS]` / `[MM:SS]` timecode off a heading, returning
+    /// its position in seconds and the remaining text. Tolerates a missing
+    /// bracket and a `—`/`-`/`:` separator; yields `(nil, title)` when there's no
+    /// timecode, so a topic without one still renders.
+    public static func splitTimecode(_ title: String) -> (start: TimeInterval?, text: String) {
+        let pattern = /^\[?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*\]?\s*[-–—:]?\s*(.*)$/
+        guard let m = title.trimmingCharacters(in: .whitespaces).wholeMatch(of: pattern) else {
+            return (nil, title)
+        }
+        let first = Int(m.1) ?? 0, second = Int(m.2) ?? 0
+        // Three groups ⇒ H:MM:SS; two ⇒ MM:SS.
+        let seconds = m.3.flatMap { Int($0) }.map { TimeInterval(first * 3600 + second * 60 + $0) }
+            ?? TimeInterval(first * 60 + second)
+        let text = String(m.4).trimmingCharacters(in: .whitespaces)
+        return (seconds, text.isEmpty ? title : text)
     }
 
     /// Flip the `index`-th checklist item in `markdown` and return the result.

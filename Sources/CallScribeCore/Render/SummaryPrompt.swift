@@ -11,11 +11,23 @@ public enum SummaryPrompt {
         ## Summary
         A short paragraph of what the call was about.
 
+        ## Topics
+        One `### [HH:MM:SS] Topic name` subsection per distinct topic discussed, \
+        in the order they came up. Copy the timecode verbatim from the transcript \
+        line where that topic starts; name the topic in 2–5 words. Under each \
+        heading write a short paragraph conveying the substance of that \
+        discussion — the main ideas, arguments and conclusions, in your own \
+        words. Do not replay individual remarks speaker by speaker and do not \
+        attribute lines.
+
         ## Agreements
         Bullet list of decisions and agreements reached.
 
         ## My tasks
         A checklist (`- [ ]`) of concrete action items assigned to "Me".
+
+        Keep those four `##` headings exactly as written above, in English; write \
+        all of the content under them in the transcript's language.
 
         REQUIRED: end your reply with a fenced ```json block (and nothing after \
         it) containing a "title" — 3–6 words naming the call, in the \

@@ -105,4 +105,91 @@ import Testing
         #expect(sections[0].blocks == [.paragraph("Loose intro.")])
         #expect(sections[1].title == "Summary")
     }
+
+    // MARK: - Topics (nested `###` sub-sections)
+
+    let withTopics = """
+    ## Summary
+    A quick sync.
+
+    ## Topics
+    ### [00:04:12] Pricing tier
+    They settled on a single mid-tier price.
+
+    ### [00:11:40] Migration timeline
+    Cutover slips to August.
+
+    ## My tasks
+    - [ ] Send the recap
+    """
+
+    @Test func topicsNestUnderTheirParentSection() {
+        let sections = SummaryMarkdown.parse(withTopics)
+        #expect(sections.map(\.title) == ["Summary", "Topics", "My tasks"])
+        let topics = sections[1].subsections
+        #expect(topics.map(\.title) == ["[00:04:12] Pricing tier", "[00:11:40] Migration timeline"])
+        #expect(topics[0].blocks == [.paragraph("They settled on a single mid-tier price.")])
+    }
+
+    @Test func nestingLeavesFlatDocumentsUnchanged() {
+        let sections = SummaryMarkdown.parse(sample)
+        #expect(sections.map(\.title) == ["Summary", "Agreements", "My tasks"])
+        #expect(sections.allSatisfy { $0.subsections.isEmpty })
+    }
+
+    @Test func taskIndicesStayGlobalAcrossNestedSections() {
+        let md = """
+        ## Topics
+        ### One
+        - [ ] alpha
+        ### Two
+        - [ ] beta
+        ## My tasks
+        - [ ] gamma
+        """
+        let sections = SummaryMarkdown.parse(md)
+        guard case .tasks(let inTopicTwo) = sections[0].subsections[1].blocks.first,
+              case .tasks(let mine) = sections[1].blocks.first else {
+            Issue.record("expected task blocks"); return
+        }
+        #expect(inTopicTwo[0].index == 1)
+        #expect(mine[0].index == 2)
+    }
+
+    @Test func orphanSubheadingBecomesATopLevelSection() {
+        let sections = SummaryMarkdown.parse("### Lonely\nBody.")
+        #expect(sections.map(\.title) == ["Lonely"])
+        #expect(sections[0].blocks == [.paragraph("Body.")])
+    }
+
+    @Test func deeperHeadingsNestRecursively() {
+        let sections = SummaryMarkdown.parse("## A\n### B\n#### C\nBody.")
+        #expect(sections[0].title == "A")
+        #expect(sections[0].subsections[0].title == "B")
+        #expect(sections[0].subsections[0].subsections[0].title == "C")
+    }
+
+    // MARK: - Timecodes
+
+    @Test func splitsFullTimecodeFromHeading() {
+        let (start, text) = SummaryMarkdown.splitTimecode("[00:04:12] Pricing tier")
+        #expect(start == 252)
+        #expect(text == "Pricing tier")
+    }
+
+    @Test func splitsShortTimecodeAndSeparator() {
+        #expect(SummaryMarkdown.splitTimecode("[04:12] Pricing").start == 252)
+        #expect(SummaryMarkdown.splitTimecode("4:12 — Pricing").start == 252)
+        #expect(SummaryMarkdown.splitTimecode("4:12 — Pricing").text == "Pricing")
+    }
+
+    @Test func splitsHoursCorrectly() {
+        #expect(SummaryMarkdown.splitTimecode("[01:02:03] Long call").start == 3723)
+    }
+
+    @Test func headingWithoutTimecodeIsUnchanged() {
+        let (start, text) = SummaryMarkdown.splitTimecode("Pricing tier")
+        #expect(start == nil)
+        #expect(text == "Pricing tier")
+    }
 }

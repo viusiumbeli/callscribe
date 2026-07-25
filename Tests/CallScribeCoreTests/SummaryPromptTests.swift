@@ -99,4 +99,10 @@ import Testing
         #expect(prompt.contains("privet"))
         #expect(prompt.contains("## My tasks"))
     }
+
+    @Test func promptAsksForTimecodedTopics() {
+        let prompt = SummaryPrompt.build(transcript: "**[00:00:00] Me:** privet")
+        #expect(prompt.contains("## Topics"))
+        #expect(prompt.contains("### [HH:MM:SS] Topic name"))
+    }
 }
