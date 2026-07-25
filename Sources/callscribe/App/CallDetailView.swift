@@ -20,6 +20,12 @@ struct CallDetailView: View {
     @State private var player = CallAudioPlayer()
     @State private var showTranscript = true
     @State private var showSpeakers = true
+    @State private var showTrim = false
+    /// Trim range: `nil` end ⇒ the recording's real end, so it follows the
+    /// duration until the user pins it.
+    @State private var trimStart: TimeInterval = 0
+    @State private var trimEnd: TimeInterval?
+    @State private var confirmingTrim = false
     @State private var confirmingDelete = false
     @State private var actionError: String?
     @State private var busy = false
@@ -64,6 +70,13 @@ struct CallDetailView: View {
                     if !speakerLabels.isEmpty {
                         SectionCard(title: "Speakers", systemImage: "person.2", isExpanded: $showSpeakers) {
                             renameControls
+                        }
+                    }
+
+                    // Needs the duration to offer a range, so only once audio loaded.
+                    if player.isReady {
+                        SectionCard(title: "Trim", systemImage: "scissors", isExpanded: $showTrim) {
+                            trimControls
                         }
                     }
 
@@ -325,6 +338,115 @@ struct CallDetailView: View {
         }
     }
 
+    // MARK: - Trim
+
+    /// Cut dead air off a recording: scrub to the spot, pin it as the new start
+    /// or end, then re-run the pipeline on the shortened audio.
+    private var trimControls: some View {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                trimRow(
+                    label: "Start",
+                    value: trimStart,
+                    set: { trimStart = min(player.currentTime, trimEndEffective - 1) }
+                )
+                trimRow(
+                    label: "End",
+                    value: trimEndEffective,
+                    set: { trimEnd = max(player.currentTime, trimStart + 1) }
+                ) {
+                    Button("Reset") {
+                        trimStart = 0
+                        trimEnd = nil
+                    }
+                    .buttonStyle(SoftButtonStyle())
+                    .disabled(!hasTrim)
+                }
+            }
+
+            Text(trimSummaryText)
+                .font(.caption)
+                .foregroundStyle(hasTrim ? Color.orange : Color.secondary)
+
+            if state.isProcessing(call.folder) {
+                Text("Wait for processing to finish before trimming.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Button {
+                confirmingTrim = true
+            } label: {
+                Label("Trim & Reprocess", systemImage: "scissors")
+            }
+            .buttonStyle(SoftButtonStyle(tint: .orange))
+            .disabled(!hasTrim || busy || state.isProcessing(call.folder))
+            .help("Permanently discard the audio outside this range and rebuild the transcript")
+        }
+        .confirmationDialog(
+            "Trim this recording?",
+            isPresented: $confirmingTrim,
+            titleVisibility: .visible
+        ) {
+            Button("Trim and reprocess", role: .destructive) {
+                let (start, end) = (trimStart, trimEndEffective)
+                // AVPlayer holds these WAVs open and they're about to be
+                // replaced underneath it.
+                player.teardown()
+                run { try await state.trim(call.folder, from: start, to: end) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("""
+            Keeps \(CallAudioPlayer.clock(trimStart))–\(CallAudioPlayer.clock(trimEndEffective)) \
+            and permanently deletes the other \(CallFormatting.duration(discardedSeconds)) of audio. \
+            The transcript, speakers and summary are then rebuilt from the trimmed audio.
+            """)
+        }
+    }
+
+    /// One "Start"/"End" row: label, current value, "Set to playhead", extras.
+    private func trimRow<Extra: View>(
+        label: String,
+        value: TimeInterval,
+        set: @escaping () -> Void,
+        @ViewBuilder extra: () -> Extra = { EmptyView() }
+    ) -> some View {
+        HStack(spacing: Spacing.sm) {
+            groupLabel(label).frame(width: 44, alignment: .leading)
+
+            Text(CallAudioPlayer.clock(value))
+                .font(.body.monospacedDigit())
+                .frame(width: 60, alignment: .leading)
+
+            Button("Set to playhead", action: set)
+                .buttonStyle(SoftButtonStyle(tint: .brand))
+                .disabled(busy)
+
+            extra()
+        }
+    }
+
+    /// The end of the kept range — the pinned value, else the recording's end.
+    private var trimEndEffective: TimeInterval {
+        trimEnd ?? player.duration
+    }
+
+    private var discardedSeconds: TimeInterval {
+        max(0, player.duration - (trimEndEffective - trimStart))
+    }
+
+    /// Is there actually something to cut? (Sub-second slivers don't count.)
+    private var hasTrim: Bool {
+        trimStart > 0.05 || trimEndEffective < player.duration - 0.05
+    }
+
+    private var trimSummaryText: String {
+        guard hasTrim else { return "Nothing to trim — the whole recording is kept." }
+        return "Keeps \(CallFormatting.duration(trimEndEffective - trimStart)) "
+            + "of \(CallFormatting.duration(player.duration)) — "
+            + "discards \(CallFormatting.duration(discardedSeconds))."
+    }
+
     /// Small uppercase caption heading for a sub-group of controls.
     private func groupLabel(_ text: String) -> some View {
         Text(text.uppercased())
@@ -387,6 +509,8 @@ struct CallDetailView: View {
         speakerLabels = Self.orderedLabels(turns)
         if !speakerLabels.contains(selectedLabel) { selectedLabel = speakerLabels.first ?? "" }
         renameTo = names[selectedLabel] ?? ""
+        trimStart = 0
+        trimEnd = nil
         player.load(call.folder)
     }
 

@@ -273,6 +273,16 @@ final class AppState {
         refreshHistory()
     }
 
+    /// Trim this call's audio to `[start, end)` and re-run the whole pipeline in
+    /// the background (the trimmed audio invalidates transcript, speakers and
+    /// summary alike). Per-call action — throws so the detail view shows a local
+    /// error rather than the global recording status.
+    func trim(_ folder: CallFolder, from start: TimeInterval, to end: TimeInterval) async throws {
+        _ = try CallTrimmer.trim(folder, from: start, to: end)
+        enqueueProcessing(folder)
+        refreshHistory()
+    }
+
     /// Names of all currently-enrolled voices (for the UI to show "forget").
     func enrolledVoiceNames() -> Set<String> {
         Set(VoiceStore().load().map(\.name))
