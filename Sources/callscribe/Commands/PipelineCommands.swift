@@ -26,9 +26,12 @@ struct SetupCommand: AsyncParsableCommand {
     func run() async throws {
         let dir = try AppPaths.ensureModelsDirectory()
         print("Downloading + prewarming \(WhisperTranscriber.defaultModel) into \(dir.path)…")
-        _ = try await WhisperTranscriber(modelFolder: dir, prewarm: true) { fraction in
-            print(String(format: "  %.0f%%", fraction * 100))
-        }
+        try await ModelProvisioner.shared.ensureReady(
+            modelsDir: dir,
+            onProgress: { fraction in
+                print(fraction.map { String(format: "  %.0f%%", $0 * 100) } ?? "  starting…")
+            })
+        _ = try await WhisperTranscriber(modelFolder: dir, prewarm: true)
         print("Model ready.")
     }
 }

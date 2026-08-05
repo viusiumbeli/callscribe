@@ -44,6 +44,39 @@ struct RecordStatusChip: View {
     }
 }
 
+/// Model-provisioning status, styled like `RecordStatusChip`. Recording works
+/// while this is up — only transcription waits for the model.
+struct ModelStatusChip: View {
+    @Bindable var state: AppState
+
+    var body: some View {
+        HStack(spacing: 5) {
+            switch state.modelState {
+            case .ready:
+                EmptyView()
+            case .downloading(let fraction):
+                if let fraction {
+                    ProgressView(value: fraction).progressViewStyle(.circular).controlSize(.small)
+                    Text("Downloading model… \(Int(fraction * 100))%").font(.callout)
+                } else {
+                    ProgressView().controlSize(.small)
+                    Text("Downloading model…").font(.callout)
+                }
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text("Model download failed").font(.callout)
+                Button("Retry") { state.provisionModels() }
+                    .buttonStyle(.borderless)
+                    .pointerCursor()
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
+    }
+}
+
 /// The Start / Stop button, shared by the window toolbar and the tray menu.
 /// Recording and background processing are independent, so this is never
 /// blocked by processing.
@@ -76,6 +109,13 @@ struct ControlBar: View {
         }
         if state.processingCount > 0 {
             Text("Processing \(state.processingCount) call\(state.processingCount > 1 ? "s" : "")…")
+        }
+        switch state.modelState {
+        case .ready: EmptyView()
+        case .downloading(let fraction):
+            Text(fraction.map { "Downloading model… \(Int($0 * 100))%" } ?? "Downloading model…")
+        case .failed:
+            Button("Retry model download") { state.provisionModels() }
         }
     }
 }

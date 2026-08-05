@@ -18,16 +18,14 @@ public final class WhisperTranscriber {
     public init(
         model: String = defaultModel,
         modelFolder: URL,
-        prewarm: Bool = false,
-        progress: (@Sendable (Double) -> Void)? = nil
+        prewarm: Bool = false
     ) async throws {
         // If the model is already downloaded, load it straight from disk with no
         // network — transcription is meant to be fully offline, and a Hugging
         // Face hiccup (e.g. a 504) must not break an already-provisioned app.
         // The tokenizer resolves locally too via downloadBase. Fall back to
         // downloading only when the model isn't present yet (first run).
-        let localModel = modelFolder
-            .appendingPathComponent("models/argmaxinc/whisperkit-coreml/\(model)")
+        let localModel = ModelProvisioner.whisperModelURL(modelsDir: modelFolder, model: model)
         let isCached = FileManager.default.fileExists(
             atPath: localModel.appendingPathComponent("AudioEncoder.mlmodelc").path)
 

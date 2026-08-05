@@ -1,5 +1,6 @@
 import AppKit
 import CallScribeCore
+import CallScribeEngine
 import SwiftUI
 
 struct CallDetailView: View {
@@ -32,9 +33,10 @@ struct CallDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Processing status pinned at the very top, above the player.
-            if let stage = state.processingStage(for: call.folder) {
-                processingHeader(stage)
+            // Status pinned at the very top, above the player: background work and
+            // per-call actions alike report here, so there is one place to look.
+            if let job = state.statusJob(for: call.folder) {
+                processingHeader(job.stage)
             }
 
             // The player stays pinned at the top so play/pause + scrubbing are
@@ -46,13 +48,6 @@ struct CallDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Spacing.xl) {
                     actions
-
-                    if busy {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Working…").foregroundStyle(.secondary)
-                        }
-                    }
 
                     if let actionError {
                         ErrorBanner(message: actionError) { self.actionError = nil }
@@ -112,7 +107,7 @@ struct CallDetailView: View {
 
     /// Background-processing status as a fixed header pinned above the player,
     /// styled to match `pinnedAudioBar` so the two bars stack cleanly.
-    private func processingHeader(_ stage: String) -> some View {
+    private func processingHeader(_ stage: PipelineRunner.Stage?) -> some View {
         HStack(spacing: Spacing.sm) {
             ProgressView().controlSize(.small).tint(.orange)
             Text("Processing — \(CallFormatting.stageLabel(stage))")
@@ -212,7 +207,9 @@ struct CallDetailView: View {
                 Label(summary.isEmpty ? "Retry Summary" : "Regenerate Summary", systemImage: "sparkles")
             }
             .buttonStyle(SoftButtonStyle(tint: .brand))
-            .disabled(busy || transcript.isEmpty)
+            // Also blocked while the background pipeline holds this call: two
+            // `claude -p` runs would race to write the same summary.md.
+            .disabled(busy || transcript.isEmpty || state.isProcessing(call.folder))
             .pointerCursor()
 
             Spacer()

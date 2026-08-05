@@ -64,6 +64,10 @@ struct CallsColumn: View {
                 RecordStatusChip(phase: state.phase)
             }
 
+            if state.modelState != .ready {
+                ModelStatusChip(state: state)
+            }
+
             if state.isRecording {
                 Button("Cancel Recording") { confirmingCancel = true }
                     .buttonStyle(SoftButtonStyle(tint: .red))
@@ -97,8 +101,8 @@ struct CallsColumn: View {
                         .font(.body.weight(.medium))
                         .foregroundStyle(isSelected ? Color.brand : Color.primary)
                         .lineLimit(2)
-                    if let stage = state.processingStage(for: call.folder) {
-                        Text(CallFormatting.stageLabel(stage)).font(.caption).foregroundStyle(.secondary)
+                    if let job = state.statusJob(for: call.folder) {
+                        Text(CallFormatting.stageLabel(job.stage)).font(.caption).foregroundStyle(.secondary)
                     } else if !sub.isEmpty {
                         Text(sub).font(.caption).foregroundStyle(.secondary)
                     }

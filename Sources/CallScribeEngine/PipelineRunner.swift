@@ -7,25 +7,39 @@ import Foundation
 /// starting over — and never loses the transcript.
 public actor PipelineRunner {
     public enum Stage: String, Sendable {
-        case echoCancel, transcribe, diarize, merge, summarize
+        case echoCancel, waitingForModel, transcribe, diarize, merge, summarize
     }
 
     private let folder: CallFolder
     private let modelsDir: URL
     private let summarizer: Summarizer?
     private let whisperModel: String
+    private let log: Log
+    private let project: String
+    /// Last stage entered, so a thrown error can say where it happened.
+    private var currentStage: Stage?
 
     public init(
         folder: CallFolder,
         modelsDir: URL,
         summarizer: Summarizer?,
-        whisperModel: String = WhisperTranscriber.defaultModel
+        whisperModel: String = WhisperTranscriber.defaultModel,
+        log: Log = .shared,
+        project: String? = nil
     ) {
         self.folder = folder
         self.modelsDir = modelsDir
         self.summarizer = summarizer
         self.whisperModel = whisperModel
+        self.log = log
+        // The display name when the caller knows it (the app), else the
+        // containing directory — the CLI has no notion of projects.
+        self.project = project ?? folder.url.deletingLastPathComponent().lastPathComponent
     }
+
+    /// Every line carries the project and the call folder: the folder name is only
+    /// a timestamp, and two projects can hold calls from the same minute.
+    private func note(_ text: String) -> String { "pipeline [\(project)] \(folder.name) \(text)" }
 
     /// Run every stage that hasn't completed yet.
     /// `onStage` reports progress for the UI.
@@ -34,20 +48,61 @@ public actor PipelineRunner {
         force: Bool = false,
         onStage: (@Sendable (Stage) -> Void)? = nil
     ) async throws -> CallMeta {
+        do {
+            let meta = try await runStages(force: force, onStage: onStage)
+            log.info(note("done"))
+            return meta
+        } catch {
+            // Which stage it died in is the part a bare error text never says.
+            log.error(note("""
+                stage=\(currentStage?.rawValue ?? "start") failed: \
+                \(Log.truncated(error.localizedDescription))
+                """))
+            throw error
+        }
+    }
+
+    /// Report a stage to the UI, the log, and `currentStage` in one move, so a
+    /// failure can name where it happened.
+    private func mark(_ stage: Stage, _ onStage: (@Sendable (Stage) -> Void)?) {
+        currentStage = stage
+        onStage?(stage)
+        log.info(note("stage=\(stage.rawValue)"))
+    }
+
+    private func runStages(
+        force: Bool,
+        onStage: (@Sendable (Stage) -> Void)?
+    ) async throws -> CallMeta {
         try FileManager.default.createDirectory(at: folder.cacheDir, withIntermediateDirectories: true)
         var meta = try folder.loadMeta()
 
         // 0. Cancel speaker echo from the mic track (best-effort; never fatal).
         if force || !meta.pipeline.echoCanceled {
-            onStage?(.echoCancel)
-            EchoCanceller.process(micWAV: folder.micWAV, systemWAV: folder.systemWAV, outWAV: folder.micCleanWAV)
+            mark(.echoCancel, onStage)
+            runEchoCancellation()
             meta.pipeline.echoCanceled = true
             try folder.saveMeta(meta)
         }
 
         // 1. Transcribe both tracks (serially, one model instance).
         if force || !meta.pipeline.transcribed {
-            onStage?(.transcribe)
+            // Before claiming to transcribe: on a fresh machine this waits on a
+            // ~1.5 GB download, and saying "Transcribing…" through it is the lie
+            // this reports instead. `onStart` fires only when we really wait.
+            // Attribute a provisioning failure to this stage even though the UI
+            // only hears about it when we genuinely have to wait. The callback
+            // runs inside the provisioner's actor, so it touches no state here.
+            currentStage = .waitingForModel
+            try await ModelProvisioner.shared.ensureReady(
+                modelsDir: modelsDir,
+                model: whisperModel,
+                onStart: { [log, project, name = folder.name] in
+                    onStage?(.waitingForModel)
+                    log.info("pipeline [\(project)] \(name) stage=waitingForModel")
+                }
+            )
+            mark(.transcribe, onStage)
             let transcriber = try await WhisperTranscriber(model: whisperModel, modelFolder: modelsDir)
             let mic = try await transcriber.transcribe(wav: micSource(), language: meta.language)
             let system = try await transcriber.transcribe(wav: folder.systemWAV, language: meta.language)
@@ -62,10 +117,8 @@ public actor PipelineRunner {
         // 2. Diarize the system track (failure → empty spans, never fatal).
         //    Enrolled voices let matched speakers come back labeled by name.
         if force || !meta.pipeline.diarized {
-            onStage?(.diarize)
-            let spans = await FluidDiarizer.diarize(
-                wav: folder.systemWAV, modelDirectory: modelsDir,
-                knownVoices: VoiceStore().load(), expectedSpeakers: meta.expectedSpeakers)
+            mark(.diarize, onStage)
+            let spans = await runDiarization(expectedSpeakers: meta.expectedSpeakers)
             try write(spans, to: folder.diarizationJSON)
             meta.pipeline.diarized = true
             try folder.saveMeta(meta)
@@ -73,7 +126,7 @@ public actor PipelineRunner {
 
         // 3. Merge into transcript.md.
         if force || !meta.pipeline.merged {
-            onStage?(.merge)
+            mark(.merge, onStage)
             try renderTranscript(names: meta.speakerNames)
             meta.pipeline.merged = true
             try folder.saveMeta(meta)
@@ -81,7 +134,7 @@ public actor PipelineRunner {
 
         // 4. Summarize (optional; failure leaves transcript intact).
         if let summarizer, force || !meta.pipeline.summarized {
-            onStage?(.summarize)
+            mark(.summarize, onStage)
             let transcript = try String(contentsOf: folder.transcriptMD, encoding: .utf8)
             let result = try await summarizer.summarize(transcript: transcript)
             try result.markdown.write(to: folder.summaryMD, atomically: true, encoding: .utf8)
@@ -101,13 +154,33 @@ public actor PipelineRunner {
     /// Stages depend on their predecessors' `.cache` artifacts existing.
     @discardableResult
     public func runStage(_ stage: Stage, force: Bool) async throws -> CallMeta {
+        // Same record as `run()` — this is the CLI's path and has no stage channel
+        // to the UI at all, so without this a `callscribe summarize` failure leaves
+        // nothing behind but the terminal it was printed to.
+        log.info(note("stage=\(stage.rawValue) (single)"))
+        do {
+            let meta = try await runOneStage(stage, force: force)
+            log.info(note("stage=\(stage.rawValue) ok"))
+            return meta
+        } catch {
+            log.error(note("stage=\(stage.rawValue) failed: \(Log.truncated(error.localizedDescription))"))
+            throw error
+        }
+    }
+
+    private func runOneStage(_ stage: Stage, force: Bool) async throws -> CallMeta {
         try FileManager.default.createDirectory(at: folder.cacheDir, withIntermediateDirectories: true)
         var meta = try folder.loadMeta()
         switch stage {
+        case .waitingForModel:
+            return meta   // a reported status, not a runnable stage
         case .echoCancel:
-            EchoCanceller.process(micWAV: folder.micWAV, systemWAV: folder.systemWAV, outWAV: folder.micCleanWAV)
+            runEchoCancellation()
             meta.pipeline.echoCanceled = true
         case .transcribe:
+            // No stage channel here (CLI subcommands) — still share the one
+            // coalesced download rather than starting a second one.
+            try await ModelProvisioner.shared.ensureReady(modelsDir: modelsDir, model: whisperModel)
             let transcriber = try await WhisperTranscriber(model: whisperModel, modelFolder: modelsDir)
             let mic = try await transcriber.transcribe(wav: micSource(), language: meta.language)
             let system = try await transcriber.transcribe(wav: folder.systemWAV, language: meta.language)
@@ -117,16 +190,19 @@ public actor PipelineRunner {
             meta.whisperModel = whisperModel
             meta.pipeline.transcribed = true
         case .diarize:
-            let spans = await FluidDiarizer.diarize(
-                wav: folder.systemWAV, modelDirectory: modelsDir,
-                knownVoices: VoiceStore().load(), expectedSpeakers: meta.expectedSpeakers)
+            let spans = await runDiarization(expectedSpeakers: meta.expectedSpeakers)
             try write(spans, to: folder.diarizationJSON)
             meta.pipeline.diarized = true
         case .merge:
             try renderTranscript(names: meta.speakerNames)
             meta.pipeline.merged = true
         case .summarize:
-            guard let summarizer else { return meta }
+            guard let summarizer else {
+                // "Regenerate summary" with no `claude` on disk does nothing at
+                // all; without this the next line would claim the stage was ok.
+                log.warn(note("stage=summarize skipped — no summarizer (claude CLI not found)"))
+                return meta
+            }
             let transcript = try String(contentsOf: folder.transcriptMD, encoding: .utf8)
             let result = try await summarizer.summarize(transcript: transcript)
             try result.markdown.write(to: folder.summaryMD, atomically: true, encoding: .utf8)
@@ -163,6 +239,33 @@ public actor PipelineRunner {
         // Structured sidecar with real per-utterance times for the UI highlight.
         // Name-independent (canonical speaker labels); names are applied on display.
         try write(transcript, to: folder.turnsJSON)
+    }
+
+    /// Echo cancellation, with its result recorded instead of dropped. Both entry
+    /// points mark the stage done either way, so a skip is otherwise invisible —
+    /// and `micSource()` then transcribes the raw mic, speaker echo included.
+    private func runEchoCancellation() {
+        let cancelled = EchoCanceller.process(
+            micWAV: folder.micWAV, systemWAV: folder.systemWAV, outWAV: folder.micCleanWAV)
+        if cancelled {
+            log.info(note("stage=echoCancel ok"))
+        } else {
+            log.warn(note("stage=echoCancel skipped — transcribing the raw mic (echo included)"))
+        }
+    }
+
+    /// Diarization, which returns empty spans rather than throwing. Empty means
+    /// every remote participant collapses into one speaker in the transcript.
+    private func runDiarization(expectedSpeakers: Int?) async -> [SpeakerSpan] {
+        let spans = await FluidDiarizer.diarize(
+            wav: folder.systemWAV, modelDirectory: modelsDir,
+            knownVoices: VoiceStore().load(), expectedSpeakers: expectedSpeakers)
+        if spans.isEmpty {
+            log.warn(note("stage=diarize produced no spans — remote speakers will merge into one"))
+        } else {
+            log.info(note("stage=diarize spans=\(spans.count)"))
+        }
+        return spans
     }
 
     /// The mic signal to transcribe: the echo-cancelled track when present,

@@ -14,7 +14,7 @@ Needs the Command Line Tools toolchain (Swift 6+), macOS 15+.
 
 ```sh
 make cert     # one-time: self-signed "CallScribe Dev" signing identity
-make setup 2>/dev/null || .build/release/callscribe setup   # download the model (~1.5 GB)
+.build/release/callscribe setup   # optional: fetch the model (~1.5 GB) up front
 make run      # build, bundle, sign, and launch the menubar app
 ```
 

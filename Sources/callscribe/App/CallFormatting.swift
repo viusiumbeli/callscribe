@@ -1,3 +1,4 @@
+import CallScribeEngine
 import Foundation
 
 /// Display formatting for calls in the history list and detail view.
@@ -31,16 +32,19 @@ enum CallFormatting {
         return String(format: "%d:%02d", t / 60, t % 60)
     }
 
-    /// Friendly label for a pipeline stage shown while a call is processing.
-    static func stageLabel(_ stage: String) -> String {
-        switch stage {
-        case "queued": "Queued…"
-        case "echoCancel": "Cleaning audio…"
-        case "transcribe": "Transcribing…"
-        case "diarize": "Detecting speakers…"
-        case "merge": "Merging…"
-        case "summarize": "Summarizing…"
-        default: "Processing…"
+    /// Friendly label for a pipeline stage shown while a call is processing;
+    /// `nil` = queued, no stage reported yet. Switched exhaustively on purpose —
+    /// a new `Stage` then fails to compile here instead of silently rendering a
+    /// generic "Processing…".
+    static func stageLabel(_ stage: PipelineRunner.Stage?) -> String {
+        guard let stage else { return "Queued…" }
+        return switch stage {
+        case .echoCancel: "Cleaning audio…"
+        case .waitingForModel: "Waiting for the model…"
+        case .transcribe: "Transcribing…"
+        case .diarize: "Detecting speakers…"
+        case .merge: "Merging…"
+        case .summarize: "Summarizing…"
         }
     }
 

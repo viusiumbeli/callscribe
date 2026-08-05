@@ -5,6 +5,14 @@ import Foundation
 /// the transcript on stdin, reads Markdown on stdout. A missing binary, a
 /// non-zero exit, or a timeout raises a typed error — the caller keeps the
 /// transcript and offers a retry; summarization never blocks the pipeline.
+/// Somewhere for a background reader to hand its bytes back.
+private final class DataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+    func set(_ value: Data) { lock.withLock { data = value } }
+    func get() -> Data { lock.withLock { data } }
+}
+
 public struct ClaudeCLISummarizer: Summarizer {
     public enum Failure: LocalizedError {
         case binaryNotFound
@@ -26,12 +34,14 @@ public struct ClaudeCLISummarizer: Summarizer {
     private let binaryURL: URL
     private let timeout: TimeInterval
     private let workingDirectory: URL?
+    private let log: Log
 
-    public init?(workingDirectory: URL? = nil, timeout: TimeInterval = 180) {
+    public init?(workingDirectory: URL? = nil, timeout: TimeInterval = 180, log: Log = .shared) {
         guard let binary = Self.resolveBinary() else { return nil }
         self.binaryURL = binary
         self.timeout = timeout
         self.workingDirectory = workingDirectory
+        self.log = log
     }
 
     /// CALLSCRIBE_CLAUDE_PATH → common install locations. GUI apps don't inherit
@@ -77,6 +87,20 @@ public struct ClaudeCLISummarizer: Summarizer {
             process.currentDirectoryURL = scratch
         }
 
+        // An app started by LaunchServices gets a stripped environment, and
+        // `claude` looks its keychain credentials up by the account name in USER —
+        // without it, it prints "Not logged in · Please run /login" and exits 1.
+        // Supply the essentials instead of inheriting whatever we were given.
+        var environment = ProcessInfo.processInfo.environment
+        if environment["USER"]?.isEmpty ?? true { environment["USER"] = NSUserName() }
+        if environment["HOME"]?.isEmpty ?? true {
+            environment["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        if environment["PATH"]?.isEmpty ?? true {
+            environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        process.environment = environment
+
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout
@@ -86,24 +110,38 @@ public struct ClaudeCLISummarizer: Summarizer {
         stdin.fileHandleForWriting.write(Data(prompt.utf8))
         try? stdin.fileHandleForWriting.close()
 
-        // Read concurrently so a large response can't deadlock on a full pipe.
-        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
+        // Read both pipes concurrently, and put the deadline on the *reads*.
+        // `readDataToEndOfFile()` blocks until the child exits, so a deadline
+        // checked after it can never fire — a hung `claude` would hang the app.
+        // Reading them one after the other also deadlocks if the second pipe
+        // fills its buffer while we're blocked on the first.
+        let outBox = DataBox(), errBox = DataBox()
+        let group = DispatchGroup()
+        let queue = DispatchQueue.global(qos: .userInitiated)
+        queue.async(group: group) { outBox.set(stdout.fileHandleForReading.readDataToEndOfFile()) }
+        queue.async(group: group) { errBox.set(stderr.fileHandleForReading.readDataToEndOfFile()) }
 
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            usleep(50_000)
-        }
-        if process.isRunning {
+        if group.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
+            _ = group.wait(timeout: .now() + 5)   // terminate closes the pipes → reads return
+            log.error("summarizer timed out after \(Int(timeout))s — terminated")
             throw Failure.timedOut
         }
+        process.waitUntilExit()
+        let outData = outBox.get(), errData = errBox.get()
 
         guard process.terminationStatus == 0 else {
-            throw Failure.nonZeroExit(
-                process.terminationStatus,
-                String(decoding: errData, as: UTF8.self)
-            )
+            // `claude -p` reports its own failures on stdout ("Not logged in",
+            // usage limits) and leaves stderr empty, so fall back to stdout —
+            // otherwise the user gets a bare exit code and nothing to act on.
+            let err = String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let out = String(decoding: outData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = err.isEmpty ? out : err
+            log.error("""
+                summarizer exit=\(process.terminationStatus) \
+                channel=\(err.isEmpty ? "stdout" : "stderr"): \(Log.truncated(message))
+                """)
+            throw Failure.nonZeroExit(process.terminationStatus, message)
         }
         return String(decoding: outData, as: UTF8.self)
     }
