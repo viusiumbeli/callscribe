@@ -10,7 +10,14 @@ public struct TrackTranscription: Codable, Sendable {
 
 /// Wraps WhisperKit for batch transcription of a WAV file. Reuses one loaded
 /// model across both tracks (they run serially to bound peak memory).
-public final class WhisperTranscriber {
+///
+/// `@unchecked Sendable` so a long-lived instance can be held as actor state
+/// (dictation keeps one warm). It adds no mutable state of its own — just an
+/// immutable handle to a `WhisperKit`, which is not itself Sendable — so
+/// *serializing* calls remains the caller's job. Both callers do: the pipeline
+/// transcribes its two tracks one after the other, and `DictationTranscriber`
+/// is an actor.
+public final class WhisperTranscriber: @unchecked Sendable {
     public static let defaultModel = "openai_whisper-large-v3-v20240930_turbo"
 
     private let whisperKit: WhisperKit
@@ -78,5 +85,37 @@ public final class WhisperTranscriber {
             }
         }
         return TrackTranscription(words: words, detectedLanguage: results.first?.language)
+    }
+
+    /// Transcribe a WAV file to plain text. `language` nil = auto-detect.
+    ///
+    /// Word timestamps are the *merge* algorithm's requirement, not
+    /// transcription's — dictation has no use for them and asking for them isn't
+    /// free, so this is a second entry point rather than a flag on the one above.
+    public func transcribeText(
+        wav url: URL,
+        language: String?
+    ) async throws -> (text: String, language: String?) {
+        let options = DecodingOptions(
+            verbose: false,
+            language: language,
+            detectLanguage: language == nil,
+            wordTimestamps: false
+        )
+        let results = try await whisperKit.transcribe(audioPath: url.path, decodeOptions: options)
+        // Trim each window before joining: their texts carry leading spaces, and
+        // concatenating raw would leave doubled ones mid-sentence.
+        let text = results
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return (text, results.first?.language)
+    }
+
+    /// Release the CoreML models now. Only a long-lived instance needs this —
+    /// the pipeline builds one per run and simply drops it, whereas dictation
+    /// holds one warm between uses and wants the ~1.5 GB back on a timer.
+    public func unload() async {
+        await whisperKit.unloadModels()
     }
 }

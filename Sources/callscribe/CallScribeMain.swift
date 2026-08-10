@@ -3,12 +3,39 @@ import ArgumentParser
 
 @main
 struct CallScribeMain {
+    /// Deliberately **not** `async`.
+    ///
+    /// An `async main` runs its body inside a Swift concurrency task, so
+    /// `NSApplicationMain` would start AppKit's run loop nested in a task
+    /// continuation rather than owning the process's main thread. AppKit tolerates
+    /// that just far enough to be misleading: the app draws, and activates once at
+    /// launch — but it can never *re*-activate after losing focus. `NSApp.isActive`
+    /// stays false, no window becomes key, and every click goes to whatever is
+    /// behind it, even while LaunchServices reports the app as frontmost. From the
+    /// outside that looks exactly like a frozen UI, with a perfectly idle main
+    /// thread and a healthy window.
+    ///
+    /// So the GUI path gets a plain synchronous `main`, and the CLI's async entry
+    /// point is driven from the main queue instead (see below).
     @MainActor
-    static func main() async {
+    static func main() {
         if isAppLaunch(Array(CommandLine.arguments.dropFirst())) {
             CallScribeApp.main()
         } else {
-            await CallScribeCLI.main()
+            // `dispatchMain()` rather than a semaphore: it parks the main thread as
+            // the main-queue server, so `@MainActor` work inside the CLI (e.g.
+            // `TextInserter`) still runs. A semaphore would deadlock on the first
+            // main-actor hop.
+            //
+            // The explicit `exit(0)` is load-bearing: `dispatchMain()` never
+            // returns, and ArgumentParser's `main()` does *not* reliably exit on
+            // the success path — without this, every successful CLI command hangs
+            // forever after printing its output.
+            Task {
+                await CallScribeCLI.main()
+                exit(0)
+            }
+            dispatchMain()
         }
     }
 
@@ -28,6 +55,7 @@ struct CallScribeCLI: AsyncParsableCommand {
         abstract: "Local call transcription for macOS.",
         subcommands: [
             RecordCommand.self,
+            DictateCommand.self,
             SetupCommand.self,
             EchoCancelCommand.self,
             TranscribeCommand.self,

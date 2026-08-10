@@ -6,6 +6,9 @@ both fully offline with WhisperKit, diarizes remote participants with FluidAudio
 merges everything into a timecoded per-speaker transcript, and produces a
 summary + action-item checklist via the local `claude -p` CLI.
 
+The same offline model also drives system-wide [dictation](#dictation): hold
+Right Shift, speak, and the text lands wherever your cursor is.
+
 See [DESIGN.md](DESIGN.md) for the full design.
 
 ## Build (command-line only — no Xcode required)
@@ -31,6 +34,41 @@ dedicated keychain; signing with it yields a certificate-based designated
 requirement that stays constant across rebuilds, so grants persist. The cert
 is untrusted (no Gatekeeper), which is fine for a local unnotarized build.
 
+## Dictation
+
+Hold **Right Shift**, speak, release. The recording is transcribed by the same
+local model and pasted straight into whatever app owns the cursor — no cloud, no
+round trip. A small overlay shows the input level while you talk, and every
+dictation is appended to `dictations.md` (see below).
+
+Past dictations live in their own **Dictations** window — tray → *Dictations…*,
+or the toolbar button in the main window. They're grouped by day, newest
+first, with a search field and per-entry copy and delete. It's a separate window
+because dictations are global, while the main window is scoped to the selected
+project. Deleting an entry rewrites `dictations.md`, so the format is defined
+once, in `CallScribeCore/Dictation/DictationLogFormat.swift`, with a round-trip
+test standing behind the rewrite.
+
+Needs one extra grant, **Accessibility** (System Settings → Privacy & Security →
+Accessibility), for the ⌘V that inserts the text. Noticing the hold needs no
+permission at all. Without the grant dictation still transcribes and leaves the
+result on the clipboard, so ⌘V by hand finishes the job. Toggle the feature, or
+reopen the Accessibility pane, from the tray menu.
+
+Right Shift is also a typing key, so three guards keep normal use intact: a hold
+shorter than 350 ms does nothing, pressing any other key while it's held cancels
+outright (you were typing a capital), and a chord like ⌘⇧ never arms. Nothing
+swallows the keystroke, so Right Shift goes on being Shift. Dictation stands down
+while a call is recording, since both want the mic.
+
+The hold is detected by polling `CGEventSource` 20 times a second rather than with
+an `NSEvent` global monitor. That is not a stylistic choice: on macOS 26 a global
+monitor stops the app receiving its own mouse clicks, which presents as a
+completely frozen UI. See decision 8b in [DESIGN.md](DESIGN.md).
+
+The first dictation after launch pays a ~1 s model load, which runs while you're
+still talking; the model is released again after 10 minutes idle.
+
 ## CLI
 
 The same binary is also a CLI, so every pipeline stage is testable without the UI:
@@ -39,11 +77,64 @@ The same binary is also a CLI, so every pipeline stage is testable without the U
 callscribe record [--duration N] [--language ru|en]   # record a call
 callscribe pipeline <call-folder>                     # transcribe→diarize→merge→summarize (resumable)
 callscribe transcribe|diarize|merge|summarize <folder>  # individual stages
+callscribe dictate [--seconds N] [--paste]            # dictation without the hotkey
 callscribe probe [--seconds N]                        # capture/permission smoke test
 ```
 
 Calls are stored as plain folders under `~/Documents/CallNotes/<timestamp>/`
 (`mic.wav`, `system.wav`, `transcript.md`, `summary.md`, `meta.json`).
+
+## Files on disk
+
+Nothing is written outside `~/Library` and the project folders you pick yourself.
+
+**Downloaded from HuggingFace on first use** — all under
+`~/Library/Application Support/CallScribe/`:
+
+| Path | Size | Repo |
+|---|---|---|
+| `Models/models/argmaxinc/whisperkit-coreml/<variant>/` | ~1.5 GB | `argmaxinc/whisperkit-coreml` |
+| `Models/models/openai/whisper-large-v3/` (tokenizer) | 2.7 MB | `openai/whisper-large-v3` |
+| `Models/speaker-diarization/` | 21 MB | `FluidInference/speaker-diarization-coreml` |
+| `speaker-diarization/` | 13 MB | same repo, legacy file names |
+
+The tokenizer is a *separate* fetch from the model snapshot, which is why "the
+model files exist" is not the same as "the model can load" — see the marker file
+below. The fourth row is FluidAudio writing to its own default directory
+regardless of the directory we pass it, so those 13 MB come back on the next
+diarizer run if you delete them.
+
+**Created by the app:**
+
+- `projects.json` — project list and selection; `voices.json` — enrolled voice embeddings
+- `dictations.md` — every dictation, as a timestamped Markdown entry. Unlike the
+  diagnostics log this holds **content**: the dictated text itself. That's why it
+  lives here and not in `~/Library/Logs`, which `sysdiagnose` collects. Prune it
+  from the Dictations window, or delete the file to drop the history entirely.
+- `Models/…/<variant>/.callscribe-provisioned` — empty marker, written only after the
+  model has loaded once. Its absence means "provision again", so an interrupted
+  first run can't masquerade as a working install.
+- `~/Library/Logs/CallScribe/callscribe.log`, rotated once at 2 MB
+  (`callscribe.log.1`). Metadata only — no transcript, summary, prompt or
+  dictated text.
+- Per call, in the project folder: the five files listed above plus `.cache/`
+  (`mic-clean.wav`, `whisper-mic.json`, `whisper-system.json`, `diarization.json`,
+  `turns.json`). Audio runs ~90 MB per track per hour.
+
+**Mostly created by macOS**: `~/Library/Preferences/com.slavayus.callscribe.plist`
+(and `callscribe.plist` for the CLI) — window frames and the like, plus the two
+settings the app does write there, `dictation.enabled` and
+`dictation.didPromptForAccessibility`. Also `~/Library/HTTPStorages/…` and
+`~/Library/Caches/com.slavayus.callscribe` — mostly `com.apple.e5rt.e5bundlecache`,
+the Neural Engine compilation of the CoreML models, ~140 MB. The CLI has no bundle
+identifier, so using both the app and `callscribe` builds that cache twice (~270 MB).
+Deletable; it is rebuilt on the next run.
+
+To remove everything: the `.app`, `~/Library/Application Support/CallScribe`
+(this includes `dictations.md`), `~/Library/Logs/CallScribe`, both `Caches` and
+`HTTPStorages` entries, both `.plist`s — and your call folders only if you want
+the recordings gone too. The TCC grants (Microphone, Audio Recording,
+Accessibility) are revoked separately, in System Settings → Privacy & Security.
 
 ## Architecture
 
@@ -51,8 +142,14 @@ Calls are stored as plain folders under `~/Documents/CallNotes/<timestamp>/`
   model, Markdown rendering, summary-prompt parsing, storage. Fast to unit-test.
 - **CallScribeEngine** — audio capture (AVAudioEngine mic + Core Audio process
   tap for system audio), WhisperKit, FluidAudio, the `claude -p` summarizer,
-  and the resumable `PipelineRunner`.
-- **callscribe** — the executable: ArgumentParser CLI + SwiftUI menubar app.
+  the resumable `PipelineRunner`, and dictation's capture/decode/insert pieces
+  (`Dictation/`).
+- **callscribe** — the executable: ArgumentParser CLI + SwiftUI menubar app,
+  plus the dictation hotkey monitor and overlay.
+
+Dictation's own decision logic — whether a Right Shift press is a hold or a
+capital letter — is a pure state machine in `CallScribeCore/Dictation`, so the
+one part with real consequences for every keystroke you type is unit-tested.
 
 ## Status
 

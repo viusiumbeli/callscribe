@@ -7,6 +7,9 @@ import SwiftUI
 /// stays pinned to the window's left regardless of the calls pane.
 struct MainWindowView: View {
     @Bindable var state: AppState
+    /// Only for the Dictations toolbar button — no property of it is read in the
+    /// body, so this adds no observation dependency.
+    let dictation: DictationController
 
     @State private var selectedCallID: String?
     @State private var showNewProject = false
@@ -59,6 +62,16 @@ struct MainWindowView: View {
                         Label("New", systemImage: "plus")
                     }
                     .help("Create a new project")
+                    .pointerCursor()
+
+                    // Its own window — dictations aren't scoped to the project
+                    // these buttons select.
+                    Button {
+                        dictation.showDictations()
+                    } label: {
+                        Label("Dictations", systemImage: "text.quote")
+                    }
+                    .help("Browse everything you've dictated")
                     .pointerCursor()
                 }
             }

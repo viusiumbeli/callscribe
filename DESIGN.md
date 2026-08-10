@@ -48,6 +48,42 @@ Speech recognition must run strictly on-device, no network.
 6. **Audio is the source of truth**: written to disk continuously from the first
    second; the transcript can always be regenerated. An app crash never loses a call.
 7. **Storage is plain folders, no DB**; Markdown is indexed by Spotlight (search for free).
+8. **Dictation on Right Shift, hold-to-talk.** Held rather than latched, so a
+   stuck session is structurally impossible. Right Shift is a *typing* key, which
+   is the whole risk: guarded by a 350 ms hold threshold (ordinary shift-typing
+   never crosses it), by cancelling outright when any other key or modifier goes
+   down during the hold, and by never arming under a chord. Those three rules live
+   in a pure `DictationGesture` state machine so they're unit-tested rather than
+   hand-verified. Nothing ever consumes the keystroke — swallowing it would break
+   capital letters system-wide.
+8b. **The hold is detected by polling `CGEventSource`, not by an event monitor.**
+   `NSEvent.addGlobalMonitorForEvents` is the obvious implementation and it
+   **breaks the app** on macOS 26: with one installed, this process stops
+   receiving its own mouse events — clicks go to whatever is behind our windows,
+   the tray menu won't open, and no window becomes key, all while the app renders
+   correctly and its main thread sits idle. It presents as a total UI freeze, and
+   took a long bisection to attribute (0 clicks delivered with the monitor
+   installed; 6 in as many seconds without it). So the watcher polls at 20 Hz:
+   `flagsState` for Right Shift via the *device-dependent* bit `0x04` (both
+   `NSEvent.modifierFlags` and `keyState(kVK_RightShift)` are useless here — the
+   former is device-independent, the latter reports modifiers under the left key
+   code), and `secondsSinceLastEventType(.keyDown)` to recover the
+   "you were typing" abort. No event tap, and **observing needs no Accessibility
+   grant** — only posting the paste does.
+9. **Insertion by clipboard + synthetic ⌘V**, not the Accessibility API.
+   Setting `kAXSelectedTextAttribute` is tidier but fails silently in too many of
+   the places people type (Electron apps, terminals, most web views); ⌘V is what
+   they all implement. The clipboard is snapshotted and restored, and the
+   synthetic event uses a `.privateState` source so it can't inherit the Right
+   Shift the user has just this moment been holding (⌘⇧V is a different command).
+   Where posting is impossible — untrusted, or secure input on a password field —
+   the text is left on the clipboard rather than dropped.
+10. **Dictation keeps its own warm model instance**, separate from the pipeline's.
+   Sharing one would park a two-second dictation behind an hour-long call
+   transcription; the cost is both resident while a call processes, bounded by a
+   10-minute idle release. The load is kicked off when recording *starts*, so the
+   first-use cost overlaps the user's speech instead of following it. Dictation
+   stands down entirely while a call records — one microphone, and the call wins.
 
 ## Architecture
 
@@ -133,6 +169,12 @@ after successful transcription".
   speakers.
 - Summarizer is mocked in tests (including the name-mapping response).
 - Audio capture — manual smoke test (not verifiable in CI).
+- Dictation: the Right Shift gesture is a pure state machine and unit-tested
+  exhaustively (it decides what happens on every keystroke, so a regression here
+  would be felt system-wide). The dictation log's format is tested too, and the
+  timestamp-free decode path against the golden speech fixture (opt-in, needs the
+  model). The hotkey monitor, the overlay panel and the synthetic ⌘V are all
+  manual — none can be exercised without a real keyboard and a focused app.
 
 ## Phases
 

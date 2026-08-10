@@ -10,6 +10,8 @@ import Foundation
 /// Alignment: given a shared session-start host time, the first buffer's own
 /// host time tells us how late this track began; we prepend that much silence
 /// so every track is zero-based at the same instant and the files line up.
+/// A lone track has nothing to line up with and passes `nil` instead — see
+/// `sessionStartHostTime`.
 final class TrackSink: @unchecked Sendable {
     private static let sampleRate = 16000
 
@@ -18,14 +20,19 @@ final class TrackSink: @unchecked Sendable {
     let queue: DispatchQueue
 
     private let writer: WAVWriter
-    private let sessionStartHostTime: UInt64
+    private let sessionStartHostTime: UInt64?
     private var resampler: AudioResampler?
     private var accepting = true
     private var firstError: Error?
     private var prependedLeadIn = false
     private(set) var startOffsetSec: TimeInterval = 0
 
-    init(url: URL, label: String, sessionStartHostTime: UInt64) throws {
+    /// - Parameter sessionStartHostTime: the shared clock zero for a multi-track
+    ///   session, or `nil` to zero-base on this track's own first sample. `nil`
+    ///   is what a single-track recording wants: the device takes a couple of
+    ///   hundred milliseconds to deliver its first buffer, and padding that gap
+    ///   would only prepend silence and overstate `duration`.
+    init(url: URL, label: String, sessionStartHostTime: UInt64?) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -62,7 +69,7 @@ final class TrackSink: @unchecked Sendable {
     /// Pad the start with silence for the gap between the shared session start
     /// and this track's first captured sample, so tracks share a timeline.
     private func prependLeadInSilence(firstBufferHostTime: UInt64) {
-        guard firstBufferHostTime > sessionStartHostTime else { return }
+        guard let sessionStartHostTime, firstBufferHostTime > sessionStartHostTime else { return }
         let seconds = Self.hostTicksToSeconds(firstBufferHostTime - sessionStartHostTime)
         guard seconds > 0, seconds < 30 else { return }   // sanity clamp
         startOffsetSec = seconds
