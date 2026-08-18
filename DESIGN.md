@@ -84,6 +84,24 @@ Speech recognition must run strictly on-device, no network.
    10-minute idle release. The load is kicked off when recording *starts*, so the
    first-use cost overlaps the user's speech instead of following it. Dictation
    stands down entirely while a call records — one microphone, and the call wins.
+11. **Echo cancellation before transcription, offline.** The mic track contains
+   the remote voices bleeding in through the speakers, which the mic-side
+   transcript would attribute to "Me". Apple's real-time voice processing
+   removes the echo but muffles the voice; instead the pipeline runs SpeexDSP's
+   adaptive filter (vendored C sources) *after* the call, using the system
+   track as the clean far-end reference — possible only because both tracks
+   are recorded separately and time-aligned. Falls back to the raw mic if
+   either input is unusable.
+12. **A persistent voice library, matched one-to-one.** Enrolling a speaker
+   stores their voice embedding (`voices.json`); later calls get names
+   automatically. Matching happens at the speaker level, not FluidAudio's loose
+   per-segment matching (which over-matches similar voices), and assignment is
+   greedy one-to-one — a wrong name is worse than a missed match.
+13. **Calls are grouped into projects** — arbitrary folders the user picks; a
+   "Default" project pointing at `~/Documents/CallNotes` keeps old recordings
+   working. Processing runs in the background so the next call can start
+   recording immediately, and a Trim tool cuts dead air off a recording and
+   re-runs the pipeline (user corrections — title, speaker names — survive).
 
 ## Architecture
 

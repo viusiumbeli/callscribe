@@ -1,10 +1,14 @@
 # CallScribe
 
 Local, on-device call transcription for macOS (Apple Silicon). Records your
-microphone and the system audio of a call on two separate tracks, transcribes
-both fully offline with WhisperKit, diarizes remote participants with FluidAudio,
-merges everything into a timecoded per-speaker transcript, and produces a
-summary + action-item checklist via the local `claude -p` CLI.
+microphone and the system audio of a call on two separate tracks, strips the
+remote voices that bleed from the speakers into the mic (SpeexDSP echo
+cancellation), transcribes both fully offline with WhisperKit, diarizes remote
+participants with FluidAudio, merges everything into a timecoded per-speaker
+transcript, and produces a summary + action-item checklist via the local
+`claude -p` CLI. Calls are grouped into projects and process in the background,
+so the next call can be recorded immediately; a Trim tool cuts dead air off a
+recording and re-runs the pipeline on the shorter audio.
 
 The same offline model also drives system-wide [dictation](#dictation): hold
 Right Shift, speak, and the text lands wherever your cursor is.
@@ -75,8 +79,9 @@ The same binary is also a CLI, so every pipeline stage is testable without the U
 
 ```sh
 callscribe record [--duration N] [--language ru|en]   # record a call
-callscribe pipeline <call-folder>                     # transcribe→diarize→merge→summarize (resumable)
-callscribe transcribe|diarize|merge|summarize <folder>  # individual stages
+callscribe pipeline <call-folder>                     # echocancel→transcribe→diarize→merge→summarize (resumable)
+callscribe echocancel|transcribe|diarize|merge|summarize <folder>  # individual stages
+callscribe enroll <folder> "Speaker 2" Misha          # learn a voice; future calls name it automatically
 callscribe dictate [--seconds N] [--paste]            # dictation without the hotkey
 callscribe probe [--seconds N]                        # capture/permission smoke test
 ```
@@ -141,9 +146,11 @@ Accessibility) are revoked separately, in System Settings → Privacy & Security
 - **CallScribeCore** — pure, dependency-free: the merge algorithm, transcript
   model, Markdown rendering, summary-prompt parsing, storage. Fast to unit-test.
 - **CallScribeEngine** — audio capture (AVAudioEngine mic + Core Audio process
-  tap for system audio), WhisperKit, FluidAudio, the `claude -p` summarizer,
-  the resumable `PipelineRunner`, and dictation's capture/decode/insert pieces
-  (`Dictation/`).
+  tap for system audio), the SpeexDSP echo canceller, WhisperKit, FluidAudio,
+  the `claude -p` summarizer, the resumable `PipelineRunner`, and dictation's
+  capture/decode/insert pieces (`Dictation/`).
+- **CSpeexDSP** — vendored SpeexDSP echo-cancellation C sources (kiss FFT +
+  the MDF adaptive filter), exposed to Swift as a SwiftPM target.
 - **callscribe** — the executable: ArgumentParser CLI + SwiftUI menubar app,
   plus the dictation hotkey monitor and overlay.
 

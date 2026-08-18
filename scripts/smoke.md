@@ -26,12 +26,15 @@ make run
 1. Join or play a call with at least two remote voices (Zoom/Meet/YouTube).
 2. Menubar → **Start Recording**. Icon fills in; status shows elapsed time.
 3. Talk for ~2 minutes (mix Russian + English to exercise language detection).
-4. **Stop & Transcribe** → status walks through transcribe → diarize → merge → summarize.
-5. **History…** → select the call:
+4. **Stop & Transcribe** → processing runs in the background (recording again is
+   possible immediately); the call's row in the list walks through the stages
+   ("Cleaning audio…" → "Transcribing…" → "Detecting speakers…" → "Merging…" →
+   "Summarizing…").
+5. In the main window (tray → **Open Window**), select the call:
    - Transcript shows interleaved `Me` / `Speaker N` turns with `[HH:MM:SS]` timecodes.
-   - Summary shows Summary / Agreements / My tasks.
+   - Summary shows Summary / Topics / Agreements / My tasks; topics expand.
    - Rename a `Speaker N` → transcript re-renders with the name.
-   - Copy / Export… / Open Folder all work.
+   - Copy Transcript / Open Folder both work.
 
 ## Dictation
 
