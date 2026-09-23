@@ -105,4 +105,82 @@ import Testing
         #expect(prompt.contains("## Topics"))
         #expect(prompt.contains("### [HH:MM:SS] Topic name"))
     }
+
+    @Test func promptAsksForSpeakerCorrections() {
+        let prompt = SummaryPrompt.build(transcript: "**[00:00:00] Me:** privet")
+        #expect(prompt.contains("\"corrections\""))
+        #expect(prompt.contains("never to or from \"Me\""))
+    }
+
+    @Test func extractsCorrections() {
+        let response = """
+        ## Summary
+        Body.
+
+        ```json
+        {"title": "Sync", "speakers": {}, "corrections": [
+          {"time": "00:04:12", "from": "Speaker 1", "to": "Speaker 2"},
+          {"time": "00:09:03", "from": "Speaker 2", "to": "Speaker 1"}
+        ]}
+        ```
+        """
+        let result = SummaryPrompt.parse(response)
+        #expect(result.corrections == [
+            SpeakerCorrection(time: "00:04:12", from: "Speaker 1", to: "Speaker 2"),
+            SpeakerCorrection(time: "00:09:03", from: "Speaker 2", to: "Speaker 1"),
+        ])
+    }
+
+    @Test func malformedCorrectionItemsAreSkipped() {
+        let response = """
+        ```json
+        {"title": "Sync", "corrections": [
+          {"time": "00:04:12", "from": "Speaker 1"},
+          {"time": "00:05:00", "from": "Speaker 1", "to": "Speaker 2"}
+        ]}
+        ```
+        """
+        let result = SummaryPrompt.parse(response)
+        #expect(result.corrections == [
+            SpeakerCorrection(time: "00:05:00", from: "Speaker 1", to: "Speaker 2")
+        ])
+    }
+
+    @Test func correctionsAbsentWhenNotProduced() {
+        let result = SummaryPrompt.parse("```json\n{\"title\": \"Sync\"}\n```")
+        #expect(result.corrections.isEmpty)
+    }
+
+    @Test func projectContextIsEmbeddedWithReplacementInstructions() {
+        let prompt = SummaryPrompt.build(
+            transcript: "**[00:00:00] Me:** privet",
+            projectContext: "AI-лупа — наш продукт"
+        )
+        #expect(prompt.contains("AI-лупа — наш продукт"))
+        #expect(prompt.contains("\"replacements\""))
+    }
+
+    @Test func noContextMeansNoContextSection() {
+        let prompt = SummaryPrompt.build(transcript: "**[00:00:00] Me:** privet")
+        #expect(!prompt.contains("Project context"))
+        #expect(!prompt.contains("\"replacements\""))
+    }
+
+    @Test func extractsReplacements() {
+        let response = """
+        ```json
+        {"title": "Sync", "replacements": [
+          {"from": "аль лупа", "to": "AI-лупа"},
+          {"from": "", "to": "dropped"},
+          {"from": "сан бокс", "to": "Sandbox"}
+        ]}
+        ```
+        """
+        let result = SummaryPrompt.parse(response)
+        // The empty-"from" item is unusable (it would match everywhere).
+        #expect(result.replacements == [
+            TextReplacement(from: "аль лупа", to: "AI-лупа"),
+            TextReplacement(from: "сан бокс", to: "Sandbox"),
+        ])
+    }
 }

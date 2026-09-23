@@ -30,6 +30,8 @@ struct CallDetailView: View {
     @State private var confirmingDelete = false
     @State private var actionError: String?
     @State private var busy = false
+    /// Voice marks awaiting "Apply names" (whole turns or playhead-split parts).
+    @State private var pendingMarks: [PendingMark] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,7 +78,30 @@ struct CallDetailView: View {
                     }
 
                     SectionCard(title: "Transcript", systemImage: "text.quote", isExpanded: $showTranscript) {
-                        TranscriptView(turns: turns, names: names, player: player)
+                        VStack(alignment: .leading, spacing: Spacing.md) {
+                            if !pendingMarks.isEmpty {
+                                annotationBar
+                            }
+                            TranscriptView(
+                                turns: turns,
+                                names: names,
+                                player: player,
+                                pendingMarks: pendingMarks,
+                                suggestions: nameSuggestions,
+                                onMark: { mark in
+                                    // Re-marking the same range replaces it;
+                                    // a different range on the same turn stacks
+                                    // (whole turn + a playhead-split tail).
+                                    pendingMarks.removeAll {
+                                        $0.turnID == mark.turnID && abs($0.start - mark.start) < 0.01
+                                    }
+                                    pendingMarks.append(mark)
+                                },
+                                onClearMarks: { turnID in
+                                    pendingMarks.removeAll { $0.turnID == turnID }
+                                }
+                            )
+                        }
                     }
                 }
                 .padding(Spacing.xl)
@@ -99,7 +124,9 @@ struct CallDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently removes the whole folder — audio, transcript, summary and everything else for this call.")
+            Text(
+                "This permanently removes the whole folder — audio, transcript, "
+                    + "summary and everything else for this call.")
         }
     }
 
@@ -212,7 +239,36 @@ struct CallDetailView: View {
             .disabled(busy || transcript.isEmpty || state.isProcessing(call.folder))
             .pointerCursor()
 
+            // Redo everything from the words up with the engine currently
+            // selected in the tray — the way to apply an engine switch (or a
+            // fresh glossary) to an already-recorded call.
+            Button {
+                run { try state.retranscribe(call.folder) }
+            } label: {
+                Label("Re-transcribe", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(SoftButtonStyle())
+            .disabled(busy || state.isProcessing(call.folder))
+            .help("Re-run transcription, speakers and summary with the selected engine")
+            .pointerCursor()
+
             Spacer()
+
+            if state.projects.count > 1 {
+                Menu {
+                    ForEach(state.projects.filter { $0.id != state.selectedProjectID }) { project in
+                        Button(project.name) {
+                            run { try state.move(call.folder, toProjectID: project.id) }
+                        }
+                    }
+                } label: {
+                    Label("Move to", systemImage: "arrowshape.turn.up.right")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(busy || state.isProcessing(call.folder))
+                .help("Move this call to another project")
+            }
 
             // Pick up an interactive Claude Code session in the project folder.
             Button {
@@ -350,15 +406,16 @@ struct CallDetailView: View {
                 trimRow(
                     label: "End",
                     value: trimEndEffective,
-                    set: { trimEnd = max(player.currentTime, trimStart + 1) }
-                ) {
-                    Button("Reset") {
-                        trimStart = 0
-                        trimEnd = nil
+                    set: { trimEnd = max(player.currentTime, trimStart + 1) },
+                    extra: {
+                        Button("Reset") {
+                            trimStart = 0
+                            trimEnd = nil
+                        }
+                        .buttonStyle(SoftButtonStyle())
+                        .disabled(!hasTrim)
                     }
-                    .buttonStyle(SoftButtonStyle())
-                    .disabled(!hasTrim)
-                }
+                )
             }
 
             Text(trimSummaryText)
@@ -497,6 +554,7 @@ struct CallDetailView: View {
     }
 
     private func load() {
+        pendingMarks = []    // marks belong to the turns being replaced
         transcript = (try? String(contentsOf: call.folder.transcriptMD, encoding: .utf8)) ?? ""
         summary = (try? String(contentsOf: call.folder.summaryMD, encoding: .utf8)) ?? ""
         names = (try? call.folder.loadMeta().speakerNames) ?? [:]
@@ -511,6 +569,24 @@ struct CallDetailView: View {
         player.load(call.folder)
     }
 
+    /// Check/uncheck a "My tasks" item and persist it back to summary.md.
+    private func toggleTask(_ index: Int) {
+        let updated = SummaryMarkdown.toggleTask(summary, index: index)
+        summary = updated
+        try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
+    }
+
+    /// Delete a "My tasks" item and persist it back to summary.md.
+    private func deleteTask(_ index: Int) {
+        let updated = SummaryMarkdown.removeTask(summary, index: index)
+        summary = updated
+        try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
+    }
+}
+
+// MARK: - Voice annotation (name turns → relabel the call)
+
+extension CallDetailView {
     /// Build the turns the transcript view renders. Prefer the structured
     /// sidecar (real per-utterance start/end times → precise highlight of
     /// overlapping speech); fall back to parsing `transcript.md` for calls not
@@ -519,10 +595,19 @@ struct CallDetailView: View {
     static func loadTurns(folder: CallFolder, transcript: String, names: [String: String]) -> [Turn] {
         if let data = try? Data(contentsOf: folder.turnsJSON),
            let t = try? JSONDecoder().decode(Transcript.self, from: data) {
+            // turns.json holds raw utterance text — glossary term fixes are
+            // applied at display time, same as transcript.md gets at render
+            // time, so the two views of the call never disagree.
+            let replacements = (try? folder.loadMeta())?.textReplacements ?? []
             return t.utterances.enumerated().map { i, u in
-                Turn(id: i, start: u.start, end: u.end, label: u.speaker.label, text: u.text)
+                Turn(
+                    id: i, start: u.start, end: u.end, label: u.speaker.label,
+                    text: TextReplacement.apply(replacements, to: u.text)
+                )
             }
         }
+        // The transcript.md fallback needs no pass — replacements are already
+        // baked into the rendered markdown.
         let reverse = Dictionary(names.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         return TranscriptParse.parse(transcript).enumerated().map { i, p in
             let words = p.text.split(separator: " ").count
@@ -549,17 +634,41 @@ struct CallDetailView: View {
         return result
     }
 
-    /// Check/uncheck a "My tasks" item and persist it back to summary.md.
-    private func toggleTask(_ index: Int) {
-        let updated = SummaryMarkdown.toggleTask(summary, index: index)
-        summary = updated
-        try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
+    /// Known names to offer in the naming popover: the voice library plus
+    /// whatever this call already shows, plus marks made just now.
+    private var nameSuggestions: [String] {
+        var known = state.enrolledVoiceNames()
+        known.formUnion(names.values)
+        known.formUnion(pendingMarks.map(\.name))
+        return known.sorted()
     }
 
-    /// Delete a "My tasks" item and persist it back to summary.md.
-    private func deleteTask(_ index: Int) {
-        let updated = SummaryMarkdown.removeTask(summary, index: index)
-        summary = updated
-        try? updated.write(to: call.folder.summaryMD, atomically: true, encoding: .utf8)
+    /// The banner over the transcript while voice marks are pending: apply
+    /// them (learn the voices, relabel the whole call) or drop them.
+    private var annotationBar: some View {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "person.wave.2")
+            Text("\(pendingMarks.count) mark(s) — applying relabels the whole call by voice")
+                .font(.callout)
+            Spacer()
+            Button("Discard") { pendingMarks = [] }
+                .buttonStyle(SoftButtonStyle())
+            Button("Apply names") {
+                run { try await applyAnnotations() }
+            }
+            .buttonStyle(SoftButtonStyle(tint: .brand))
+            .disabled(busy || state.isProcessing(call.folder))
+        }
+        .padding(Spacing.md)
+        .background(Color.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func applyAnnotations() async throws {
+        let annotations = pendingMarks.map {
+            VoiceRelabeler.Annotation(start: $0.start, end: $0.end, name: $0.name)
+        }
+        try await state.applyVoiceAnnotations(annotations, in: call.folder)
+        pendingMarks = []
+        load()
     }
 }

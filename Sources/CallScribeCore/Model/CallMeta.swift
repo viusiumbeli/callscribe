@@ -42,6 +42,12 @@ public struct CallMeta: Codable, Sendable, Equatable {
     public var systemStartOffsetSec: Double?
     /// "Speaker 1" → "Misha"; inferred by the Summarizer or set manually.
     public var speakerNames: [String: String]
+    /// Turn-level speaker fixes inferred by the Summarizer; re-applied on every
+    /// transcript re-render. Dropped on trim (their timecodes shift).
+    public var speakerCorrections: [SpeakerCorrection]?
+    /// Term fixes from the project context ("аль лупа" → "AI-лупа"); applied
+    /// at render time. Content-keyed, so they survive trims and re-runs.
+    public var textReplacements: [TextReplacement]?
     public var pipeline: PipelineState
     public var appVersion: String
     public var whisperModel: String?

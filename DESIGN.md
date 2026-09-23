@@ -37,14 +37,46 @@ Speech recognition must run strictly on-device, no network.
    aggregate device can't be read via AVAudioEngine — IOProc callbacks only.)*
 3. **WhisperKit** as the STT engine: live draft via streaming on a small model
    (base/small), final pass in batch mode on `large-v3-turbo`, each track separately.
-4. **Diarization of remote participants in the MVP**: FluidAudio (pyannote models on
-   CoreML, on-device) clusters voices on the system-audio track into `Speaker 1/2/3`.
-   Known limits: labels are anonymous (not names), and boundaries degrade on
-   overlapping speech, similar voices, and compressed conference audio.
+   A second engine is user-selectable from the tray: **NVIDIA Parakeet TDT 0.6B v3**
+   (FluidAudio's CoreML port — the diarizer dependency already ships it), several-fold
+   faster at a third of the disk/memory, multilingual incl. Russian, token timings at
+   80 ms granularity feeding the same merge. Whisper stays the default: it is stronger
+   on code-switched ru/en speech and reports the detected language (Parakeet doesn't).
+   The `SpeechTranscriber` protocol keeps the pipeline and dictation engine-agnostic;
+   the choice is stored in UserDefaults (`stt.engine`) and applies to new work only —
+   meta.json records which model transcribed each call.
+4. **Diarization of remote participants**: pyannote *community-1* via Argmax
+   SpeakerKit (on-device CoreML: powerset segmentation → WeSpeaker embeddings →
+   VBx clustering) — chosen by verified research (DER 20.2% on DIHARD III, the
+   best open cascaded pipeline) after the previous-generation FluidAudio models
+   kept merging quiet participants into the dominant cluster; the exact-count
+   hint now genuinely constrains clustering. FluidAudio stays as the voice
+   LIBRARY's embedding space (matching, relabeling, enrollment re-embed
+   cluster centroids per call), so profiles survived the migration unchanged —
+   and as the Parakeet ASR provider. Known limits: labels are anonymous (not
+   names), and boundaries degrade on overlapping speech and similar voices. The
+   diarizer cuts on model frames, so before attribution each boundary between
+   different-speaker spans is snapped to the nearest inter-word silence of the
+   Whisper transcription (word timings are the finer signal; speakers change
+   between words, not mid-word) — reply edges stop stealing each other's words.
 5. **Speaker names via the LLM**: the Summarizer prompt maps speaker labels to real
    names from conversation context ("Thanks, Misha" → Speaker 2 = Misha) —
    best-effort; manual rename in the UI is the fallback. The mapping is stored in
-   `meta.json` and applied to the transcript.
+   `meta.json` and applied to the transcript. The same reply carries turn-level
+   *speaker corrections* — lines whose attribution is clearly wrong in context
+   (an answer credited to the person who asked it). Applied conservatively:
+   only between remote speakers (never "Me" — the mic track is ground truth),
+   and only when both the turn's timecode and its current label match. Stored
+   in `meta.json` with labels canonicalized ("Speaker 2", never a display
+   name, so renames can't strand them) and each entry keyed by the turn's
+   original speaker (chains collapse, exact reverts cancel — replay order
+   never matters). They survive every re-render; cleared when diarization
+   re-runs and on Trim, whose new spans/timecodes they no longer describe.
+   A per-project `context.md` (glossary, people, terms — the toolbar's
+   Context button) rides along in the same prompt: the LLM uses its canonical
+   spellings and returns `replacements` — literal "misheard → canonical" text
+   fixes, applied at render time and content-keyed, so they survive trims and
+   even a re-transcription that repeats the same mistake.
 6. **Audio is the source of truth**: written to disk continuously from the first
    second; the transcript can always be regenerated. An app crash never loses a call.
 7. **Storage is plain folders, no DB**; Markdown is indexed by Spotlight (search for free).
@@ -97,11 +129,40 @@ Speech recognition must run strictly on-device, no network.
    automatically. Matching happens at the speaker level, not FluidAudio's loose
    per-segment matching (which over-matches similar voices), and assignment is
    greedy one-to-one — a wrong name is worse than a missed match.
+   The primary way voices get learned is per-utterance annotation: speaker
+   labels in the transcript are clickable, the user names a few turns ("this
+   piece of voice is Ilia") and applies — those marks are ground truth.
+   `SpanRelabeler` (pure, unit-tested) then reassigns every diarization span:
+   an annotated span keeps its mark unconditionally; a cluster annotated with
+   one name inherits it wholesale; a cluster annotated with several names (the
+   diarizer merged people) splits per-span by voice; unannotated clusters get
+   a name only within the strict distance threshold. The voices land in the
+   library (with an audible WAV sample — the People screen lists them), so
+   future calls are named automatically.
 13. **Calls are grouped into projects** — arbitrary folders the user picks; a
    "Default" project pointing at `~/Documents/CallNotes` keeps old recordings
    working. Processing runs in the background so the next call can start
    recording immediately, and a Trim tool cuts dead air off a recording and
    re-runs the pipeline (user corrections — title, speaker names — survive).
+   A call recorded into the wrong project moves to another one (folder move,
+   collision-suffixed; blocked while the pipeline holds it), and Re-transcribe
+   redoes everything from the words up with the currently selected engine.
+14. **Capture survives route changes.** Bluetooth headsets switch away and flip
+   profiles (A2DP↔HFP) mid-call, and each flip can change the stream's sample
+   rate — wrapping tap buffers with a stale format is how a 40-minute call
+   once produced a half-speed system track. Three layers defend against it:
+   the tap's stream format lives behind a lock and is refreshed by a property
+   listener (the IOProc re-reads it per callback); TrackSink re-creates its
+   resampler whenever a buffer's format changes; and a default-output-device
+   listener rebuilds the tap + aggregate on the new route while the mic engine
+   restarts on `AVAudioEngineConfigurationChange`. Holes left while capture
+   was down are padded with silence, keeping the two tracks sample-aligned
+   for the echo canceller. The watchdog escalates per track (`StallDetector`,
+   a pure unit-tested state machine): restart the stalled track's capture,
+   abandon it after three failed restarts and continue on the other track —
+   a mic-only transcript beats none — and end the session only when both are
+   dead, reporting whether audio stopped arriving or writes started failing
+   (a latched disk error used to masquerade as a "capture stall").
 
 ## Architecture
 
@@ -130,11 +191,12 @@ Speech recognition must run strictly on-device, no network.
 - **Transcriber** — live: mixed signal → ring buffer → WhisperKit streaming (draft,
   no attribution). Final: each track separately with word timestamps.
 - **Diarizer** — runs on the system-audio track, produces time-ranged speaker
-  clusters; merge step aligns Whisper segments with clusters by time overlap →
+  clusters; merge step snaps cluster edges to inter-word silences, then aligns
+  Whisper segments with clusters by time overlap →
   `[00:12:34] Me: … / Speaker 2: …`.
 - **Summarizer** — a "transcript → markdown" protocol + prompt template (summary,
-  agreements, "my tasks" checklist, speaker-name mapping). Implementation #1 shells
-  out to `claude -p`.
+  agreements, "my tasks" checklist, speaker-name mapping, turn-level speaker
+  corrections). Implementation #1 shells out to `claude -p`.
 
 macOS permissions: Microphone + System Audio Recording (`NSAudioCaptureUsageDescription`,
 required by the Core Audio tap) — onboarding flow on first launch. No Screen
@@ -151,8 +213,9 @@ During the call:
 After Stop:
 4. Final STT pass per track; diarization on the system track; merge by time overlap
    → `transcript.md` with `Me / Speaker N` labels.
-5. Transcript → Summarizer → `summary.md` + inferred speaker names; names are
-   applied to the transcript, manual rename available in the UI.
+5. Transcript → Summarizer → `summary.md` + inferred speaker names + turn-level
+   speaker corrections; both are applied to the transcript, manual rename
+   available in the UI.
 6. Window shows transcript + summary; "copy / export / open folder" actions.
 
 ## Storage
@@ -162,14 +225,16 @@ After Stop:
   mic.wav  system.wav  transcript.md  summary.md  meta.json
 ```
 
-`meta.json` holds call metadata and the speaker-label → name mapping (inferred or
-manually set). In-app history = a listing of this folder. Setting: "delete audio
+`meta.json` holds call metadata, the speaker-label → name mapping (inferred or
+manually set), and the LLM's turn-level speaker corrections. In-app history = a
+listing of this folder. Setting: "delete audio
 after successful transcription".
 
 ## Error handling
 
-- Permission revoked / capture died mid-call → immediate notification; everything
-  recorded so far is kept.
+- Permission revoked / capture died mid-call → per-track restarts first; the
+  session ends (with everything recorded so far kept) only when both tracks
+  are beyond recovery, and the log says which failure mode it was.
 - No `claude` CLI / no network → transcript is still produced and saved (with
   anonymous speaker labels); the summary has a "retry" button. Transcription and
   diarization never depend on summarization.
@@ -183,6 +248,9 @@ after successful transcription".
 
 - Unit: merge logic — aligning word-timestamped Whisper segments with diarization
   clusters across two tracks (the core logic of the app).
+- Unit: capture resilience — the watchdog's escalation rules (`StallDetector`)
+  and TrackSink's format-following resampler + timeline gap padding, driven
+  with synthetic buffers and host times.
 - Golden test of the pipeline on a short two-track ru+en fixture with two remote
   speakers.
 - Summarizer is mocked in tests (including the name-mapping response).

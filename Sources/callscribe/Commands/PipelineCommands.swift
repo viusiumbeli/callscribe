@@ -8,13 +8,22 @@ private func callFolder(_ path: String) -> CallFolder {
     CallFolder(url: URL(fileURLWithPath: path))
 }
 
-private func makeRunner(_ folder: CallFolder, withSummarizer: Bool) throws -> PipelineRunner {
+private func makeRunner(
+    _ folder: CallFolder, withSummarizer: Bool, engine: STTEngine = .whisper
+) throws -> PipelineRunner {
     let modelsDir = try AppPaths.ensureModelsDirectory()
     let summarizer: Summarizer? = withSummarizer ? ClaudeCLISummarizer() : nil
     if withSummarizer && summarizer == nil {
         FileHandle.standardError.write(Data("note: `claude` CLI not found; summary will be skipped\n".utf8))
     }
-    return PipelineRunner(folder: folder, modelsDir: modelsDir, summarizer: summarizer)
+    return PipelineRunner(folder: folder, modelsDir: modelsDir, summarizer: summarizer, engine: engine)
+}
+
+private func parseEngine(_ raw: String) throws -> STTEngine {
+    guard let engine = STTEngine(rawValue: raw.lowercased()) else {
+        throw ValidationError("Unknown engine '\(raw)' — use whisper or parakeet.")
+    }
+    return engine
 }
 
 struct SetupCommand: AsyncParsableCommand {
@@ -22,16 +31,22 @@ struct SetupCommand: AsyncParsableCommand {
         commandName: "setup",
         abstract: "Download and prewarm the transcription model (one-time, several minutes)."
     )
+    @Option(help: "STT engine to fetch: whisper or parakeet.") var engine: String = "whisper"
 
     func run() async throws {
+        let engine = try parseEngine(engine)
         let dir = try AppPaths.ensureModelsDirectory()
-        print("Downloading + prewarming \(WhisperTranscriber.defaultModel) into \(dir.path)…")
+        print("Downloading + prewarming \(engine.modelName) into \(dir.path)…")
         try await ModelProvisioner.shared.ensureReady(
             modelsDir: dir,
+            engine: engine,
             onProgress: { fraction in
                 print(fraction.map { String(format: "  %.0f%%", $0 * 100) } ?? "  starting…")
             })
-        _ = try await WhisperTranscriber(modelFolder: dir, prewarm: true)
+        switch engine {
+        case .whisper: _ = try await WhisperTranscriber(modelFolder: dir, prewarm: true)
+        case .parakeet: _ = try await ParakeetTranscriber(modelsDir: dir)
+        }
         print("Model ready.")
     }
 }
@@ -43,9 +58,11 @@ struct TranscribeCommand: AsyncParsableCommand {
     )
     @Argument(help: "Path to the call folder.") var folder: String
     @Flag(help: "Re-transcribe even if cached.") var force = false
+    @Option(help: "STT engine: whisper or parakeet.") var engine: String = "whisper"
 
     func run() async throws {
-        let runner = try makeRunner(callFolder(folder), withSummarizer: false)
+        let runner = try makeRunner(
+            callFolder(folder), withSummarizer: false, engine: parseEngine(engine))
         _ = try await runner.runStage(.transcribe, force: force)
         print("Transcribed.")
     }
@@ -99,10 +116,12 @@ struct EnrollCommand: AsyncParsableCommand {
     func run() async throws {
         let f = callFolder(folder)
         let modelsDir = try AppPaths.ensureModelsDirectory()
-        let embedding = try await VoiceEnroller.embedding(
-            forSpeakerLabel: speaker, in: f, modelDirectory: modelsDir)
-        let voices = try VoiceStore().upsert(VoiceProfile(name: name, embedding: embedding))
-        print("Learned \(name) (\(embedding.count)-dim). Library now has \(voices.count) voice(s).")
+        let learned = try await VoiceEnroller.learn(
+            speakerLabel: speaker, in: f, modelDirectory: modelsDir)
+        let store = VoiceStore()
+        let voices = try store.upsert(VoiceProfile(name: name, embedding: learned.embedding))
+        try? store.saveSample(learned.sample, forName: name)
+        print("Learned \(name) (\(learned.embedding.count)-dim). Library now has \(voices.count) voice(s).")
         let runner = PipelineRunner(folder: f, modelsDir: modelsDir, summarizer: nil)
         _ = try await runner.runStage(.diarize, force: true)
         _ = try await runner.runStage(.merge, force: true)
@@ -145,10 +164,11 @@ struct PipelineCommand: AsyncParsableCommand {
     )
     @Argument(help: "Path to the call folder.") var folder: String
     @Flag(help: "Re-run every stage.") var force = false
+    @Option(help: "STT engine: whisper or parakeet.") var engine: String = "whisper"
 
     func run() async throws {
         let f = callFolder(folder)
-        let runner = try makeRunner(f, withSummarizer: true)
+        let runner = try makeRunner(f, withSummarizer: true, engine: parseEngine(engine))
         let meta = try await runner.run(force: force) { stage in
             print("… \(stage.rawValue)")
         }

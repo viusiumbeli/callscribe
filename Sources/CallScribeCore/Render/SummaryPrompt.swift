@@ -2,8 +2,27 @@ import Foundation
 
 /// Prompt template for the summarizer and a tolerant parser for its response.
 public enum SummaryPrompt {
-    public static func build(transcript: String) -> String {
-        """
+    public static func build(transcript: String, projectContext: String? = nil) -> String {
+        let context = projectContext.map { context in
+            """
+
+            Project context — glossary, people, and terminology for this call. \
+            Use these canonical spellings everywhere you write. Where the \
+            transcript clearly misrecognized a term from the context, also add \
+            a "replacements" array to the JSON block: \
+            [{"from": "<text exactly as it appears in the transcript>", \
+            "to": "<canonical term>"}]. Copy "from" verbatim (it is applied as \
+            a literal text replacement), fix only terms you are confident \
+            about, and never rewrite ordinary speech.
+
+            Context:
+            ---
+            \(context)
+            ---
+
+            """
+        } ?? ""
+        return """
         You are given a transcript of a call. Speakers are labeled "Me" and \
         "Speaker 1", "Speaker 2", etc. Produce a concise Markdown summary in the \
         same language as the transcript, with these sections:
@@ -33,12 +52,23 @@ public enum SummaryPrompt {
         it) containing a "title" — 3–6 words naming the call, in the \
         transcript's language — and a "speakers" object mapping labels to any \
         real names you can confidently infer (use {} if none). Always include \
-        the "title". Example:
+        the "title".
+
+        If a line is clearly attributed to the wrong speaker given the \
+        conversational context (an answer credited to the person who asked the \
+        question, a line that must belong to the other party mid-dialogue), \
+        also include a "corrections" array. Each item is \
+        {"time": "HH:MM:SS", "from": "<label shown>", "to": "<label it should be>"} \
+        with the timecode copied verbatim from that line. Only reassign \
+        between remote speakers ("Speaker N" or named) — never to or from \
+        "Me" — and only when you are confident; omit the array when in doubt. \
+        Example:
 
         ```json
-        {"title": "Launch planning sync", "speakers": {"Speaker 1": "Misha"}}
+        {"title": "Launch planning sync", "speakers": {"Speaker 1": "Misha"}, \
+        "corrections": [{"time": "00:04:12", "from": "Speaker 1", "to": "Speaker 2"}]}
         ```
-
+        \(context)
         Transcript:
         ---
         \(transcript)
@@ -59,6 +89,8 @@ public enum SummaryPrompt {
 
         var names: [String: String] = [:]
         var title: String?
+        var corrections: [SpeakerCorrection] = []
+        var replacements: [TextReplacement] = []
         if let data = block.json.data(using: .utf8),
            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let speakers = root["speakers"] as? [String: Any] {
@@ -68,6 +100,23 @@ public enum SummaryPrompt {
                !t.isEmpty {
                 title = t
             }
+            if let list = root["corrections"] as? [[String: Any]] {
+                corrections = list.compactMap { item in
+                    guard let time = item["time"] as? String,
+                          let from = item["from"] as? String,
+                          let to = item["to"] as? String
+                    else { return nil }
+                    return SpeakerCorrection(time: time, from: from, to: to)
+                }
+            }
+            if let list = root["replacements"] as? [[String: Any]] {
+                replacements = list.compactMap { item in
+                    guard let from = item["from"] as? String, !from.isEmpty,
+                          let to = item["to"] as? String
+                    else { return nil }
+                    return TextReplacement(from: from, to: to)
+                }
+            }
         }
 
         var markdown = response
@@ -75,7 +124,9 @@ public enum SummaryPrompt {
         return SummaryResult(
             markdown: markdown.trimmingCharacters(in: .whitespacesAndNewlines),
             speakerNames: names,
-            title: title
+            title: title,
+            corrections: corrections,
+            replacements: replacements
         )
     }
 

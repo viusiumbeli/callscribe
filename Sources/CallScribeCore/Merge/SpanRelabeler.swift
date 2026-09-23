@@ -1,0 +1,237 @@
+import Foundation
+
+/// Reassigns diarization spans to user-named voices. The user's per-utterance
+/// annotations are ground truth: an annotated span gets its name no matter
+/// what; the rest follow by voice similarity, most cautiously the further
+/// they are from the evidence:
+///
+///   1. a span the user annotated → that name, always;
+///   2. an unannotated span whose CLUSTER was annotated with one name → that
+///      name (the diarizer already vouched these spans are the same voice);
+///   3. a cluster annotated with SEVERAL names (the diarizer merged people) →
+///      each span goes to the nearest of those names by its own embedding;
+///   4. a cluster with no annotations at all → the nearest name centroid, but
+///      only within the strict threshold — a false name is worse than a miss.
+public enum SpanRelabeler {
+    /// "Span #i is `name`" — resolved by the caller from an annotated
+    /// utterance's time range.
+    public struct Assignment: Sendable, Equatable {
+        public let spanIndex: Int
+        public let name: String
+
+        public init(spanIndex: Int, name: String) {
+            self.spanIndex = spanIndex
+            self.name = name
+        }
+    }
+
+    /// A raw user mark: "this time range is `name`".
+    public struct Mark: Sendable, Equatable {
+        public let start: TimeInterval
+        public let end: TimeInterval
+        public let name: String
+
+        public init(start: TimeInterval, end: TimeInterval, name: String) {
+            self.start = start
+            self.end = end
+            self.name = name
+        }
+    }
+
+    /// Resolve marks to spans, SPLITTING any span that received different
+    /// names — the diarizer missed a speaker change inside it, and collapsing
+    /// to one name would silently drop the user's other mark. Each conflicting
+    /// mark gets a dedicated sub-span (same cluster) covering its range, so
+    /// the multi-name cluster rules can then separate the voices. Marks that
+    /// overlap no span are dropped.
+    public static func resolve(
+        spans: [SpeakerSpan],
+        marks: [Mark]
+    ) -> (spans: [SpeakerSpan], assignments: [Assignment]) {
+        var marksBySpan: [Int: [Mark]] = [:]
+        for mark in marks {
+            let best = spans.indices
+                .map { ($0, overlap(spans[$0], mark)) }
+                .max { $0.1 < $1.1 }
+            guard let best, best.1 > 0 else { continue }
+            marksBySpan[best.0, default: []].append(mark)
+        }
+
+        var outSpans: [SpeakerSpan] = []
+        var assignments: [Assignment] = []
+        for (index, span) in spans.enumerated() {
+            guard let spanMarks = marksBySpan[index] else {
+                outSpans.append(span)
+                continue
+            }
+            if Set(spanMarks.map(\.name)).count == 1 {
+                assignments.append(Assignment(spanIndex: outSpans.count, name: spanMarks[0].name))
+                outSpans.append(span)
+                continue
+            }
+            let pieces = split(span, at: spanMarks)
+            for (offset, piece) in pieces.enumerated() {
+                // The most specific (shortest) mark covering a piece wins:
+                // "this whole turn is Lesha" plus "from 05:57 it's Alexey"
+                // must yield head → Lesha, tail → Alexey, not a fight over
+                // the tail between both marks.
+                let winner = spanMarks
+                    .filter { overlap(piece, $0) > 0 }
+                    .min { lhs, rhs in
+                        let l = lhs.end - lhs.start
+                        let r = rhs.end - rhs.start
+                        if l != r { return l < r }
+                        return overlap(piece, lhs) > overlap(piece, rhs)
+                    }
+                if let winner {
+                    assignments.append(Assignment(spanIndex: outSpans.count + offset, name: winner.name))
+                }
+            }
+            outSpans.append(contentsOf: pieces)
+        }
+        return (outSpans, assignments)
+    }
+
+    /// Cut a span at the boundaries of its (conflicting) marks. Sub-second
+    /// slivers are merged away by the 10 ms floor.
+    private static func split(_ span: SpeakerSpan, at marks: [Mark]) -> [SpeakerSpan] {
+        var cuts: Set<TimeInterval> = []
+        for mark in marks {
+            let lo = min(max(mark.start, span.start), span.end)
+            let hi = min(max(mark.end, span.start), span.end)
+            if lo > span.start { cuts.insert(lo) }
+            if hi < span.end { cuts.insert(hi) }
+        }
+        let bounds = ([span.start, span.end] + cuts).sorted()
+        return zip(bounds, bounds.dropFirst()).compactMap { lo, hi in
+            hi - lo > 0.01
+                ? SpeakerSpan(speakerID: span.speakerID, start: lo, end: hi, name: span.name)
+                : nil
+        }
+    }
+
+    private static func overlap(_ span: SpeakerSpan, _ mark: Mark) -> TimeInterval {
+        max(0, min(span.end, mark.end) - max(span.start, mark.start))
+    }
+
+    /// Measured on a real call (2026-09-02): a speaker's own spans sit at
+    /// median 0.35 from their own centroid, while different speakers' cluster
+    /// centroids sit at ≈0.87+ — so the old 0.35 (borrowed from cross-call
+    /// matching) rejected the same voice half the time. 0.65 accepts
+    /// same-voice clusters with a wide margin below different-voice territory.
+    /// Cross-call library matching stays far stricter (VoiceMatcher): there
+    /// the same/different distributions overlap and a wrong name is worse.
+    public static let propagationThreshold: Float = 0.65
+
+    /// `embeddings` runs parallel to `spans`; nil where a span was too short
+    /// to embed. Spans keep their existing name when nothing new applies.
+    public static func relabel(
+        spans: [SpeakerSpan],
+        embeddings: [[Float]?],
+        assignments: [Assignment]
+    ) -> [SpeakerSpan] {
+        guard !assignments.isEmpty, spans.count == embeddings.count else { return spans }
+
+        var nameBySpan: [Int: String] = [:]
+        for assignment in assignments where spans.indices.contains(assignment.spanIndex) {
+            nameBySpan[assignment.spanIndex] = assignment.name
+        }
+        guard !nameBySpan.isEmpty else { return spans }
+
+        // Duration-weighted voice centroid per annotated name.
+        var centroids: [String: [Float]] = [:]
+        for (index, name) in nameBySpan {
+            guard let embedding = embeddings[index] else { continue }
+            let weight = Float(max(spans[index].end - spans[index].start, 0.001))
+            var sum = centroids[name] ?? [Float](repeating: 0, count: embedding.count)
+            for i in embedding.indices where i < sum.count { sum[i] += embedding[i] * weight }
+            centroids[name] = sum
+        }
+        let nameCentroids = centroids.mapValues(VoiceMath.normalize)
+
+        // Which names each cluster was annotated with, and where.
+        var clusterVotes: [String: Set<String>] = [:]
+        var clusterMarks: [String: [(mid: TimeInterval, name: String)]] = [:]
+        for (index, name) in nameBySpan {
+            let span = spans[index]
+            clusterVotes[span.speakerID, default: []].insert(name)
+            clusterMarks[span.speakerID, default: []].append(((span.start + span.end) / 2, name))
+        }
+
+        // One decision per fully-unannotated cluster, from its weighted centroid.
+        let unannotatedClusterName = unannotatedClusterNames(
+            spans: spans, embeddings: embeddings,
+            annotatedClusters: Set(clusterVotes.keys), nameCentroids: nameCentroids)
+
+        return spans.enumerated().map { index, span in
+            let name: String?
+            if let annotated = nameBySpan[index] {
+                name = annotated
+            } else if let votes = clusterVotes[span.speakerID] {
+                if votes.count == 1 {
+                    name = votes.first
+                } else {
+                    name = splitClusterName(
+                        embedding: embeddings[index],
+                        spanMid: (span.start + span.end) / 2,
+                        votes: votes,
+                        nameCentroids: nameCentroids,
+                        marks: clusterMarks[span.speakerID] ?? [])
+                }
+            } else {
+                name = unannotatedClusterName[span.speakerID]
+            }
+            guard let name else { return span }
+            return SpeakerSpan(speakerID: span.speakerID, start: span.start, end: span.end, name: name)
+        }
+    }
+
+    /// A cluster the diarizer wrongly merged: pick among the voted names by
+    /// this span's own voice, falling back to the nearest annotated span in
+    /// time when the span was too short to embed.
+    private static func splitClusterName(
+        embedding: [Float]?,
+        spanMid: TimeInterval,
+        votes: Set<String>,
+        nameCentroids: [String: [Float]],
+        marks: [(mid: TimeInterval, name: String)]
+    ) -> String? {
+        if let embedding {
+            let normalized = VoiceMath.normalize(embedding)
+            let best = votes
+                .compactMap { name in nameCentroids[name].map { (name, VoiceMath.cosineDistance(normalized, $0)) } }
+                .min { $0.1 < $1.1 }
+            if let best { return best.0 }
+        }
+        return marks.min { abs($0.mid - spanMid) < abs($1.mid - spanMid) }?.name
+    }
+
+    /// Nearest name centroid per unannotated cluster — strictly thresholded.
+    private static func unannotatedClusterNames(
+        spans: [SpeakerSpan],
+        embeddings: [[Float]?],
+        annotatedClusters: Set<String>,
+        nameCentroids: [String: [Float]]
+    ) -> [String: String] {
+        var sums: [String: [Float]] = [:]
+        for (index, span) in spans.enumerated() where !annotatedClusters.contains(span.speakerID) {
+            guard let embedding = embeddings[index] else { continue }
+            let weight = Float(max(span.end - span.start, 0.001))
+            var sum = sums[span.speakerID] ?? [Float](repeating: 0, count: embedding.count)
+            for i in embedding.indices where i < sum.count { sum[i] += embedding[i] * weight }
+            sums[span.speakerID] = sum
+        }
+        var result: [String: String] = [:]
+        for (cluster, sum) in sums {
+            let centroid = VoiceMath.normalize(sum)
+            let best = nameCentroids
+                .map { ($0.key, VoiceMath.cosineDistance(centroid, $0.value)) }
+                .min { $0.1 < $1.1 }
+            if let best, best.1 <= propagationThreshold {
+                result[cluster] = best.0
+            }
+        }
+        return result
+    }
+
+}
